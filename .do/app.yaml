@@ -55,18 +55,20 @@ services:
         value: "0.05"
 
       # ---- storage
-      # 🔴 ./data หายทุก deploy/restart/scale — App Platform ไม่มีดิสก์ถาวร
-      # เป็นการตัดสินใจของ POC ไม่ใช่บั๊ก · เฟรมแรกๆ หลัง deploy จะขึ้น cold_start
+      # 🔴 ต้องเป็น /tmp ไม่ใช่ ./data — โฟลเดอร์แอปบน buildpack **เขียนไม่ได้**
+      # deploy แรก 2026-08-16 ตายด้วย exit 190 ตอน import เพราะเปิด ./data/animals.db ไม่ได้
+      # แล้ว log ขึ้นแค่ 'connection refused' ซึ่งชี้ไปผิดที่ทั้งหมด
+      # /tmp หายทุก deploy เหมือนกัน แต่นั่นคือทาง ค. ที่เลือกไว้แล้ว ไม่ได้เสียอะไรเพิ่ม
       - key: STORE_BACKEND
         value: sqlite
       - key: STORE_DSN
-        value: ./data/animals.db
+        value: /tmp/animalcountllm/animals.db
       - key: RETENTION_DAYS
         value: "7"
       - key: SAVE_IMAGES
         value: interesting
       - key: IMAGE_DIR
-        value: ./data/frames
+        value: /tmp/animalcountllm/frames
 
       # ---- CV · ต้องจูนใหม่เมื่อได้ภาพจากไซต์จริง (ต้องรู้ FOV และระยะไกลสุด)
       - key: CV_MIN_AREA_PX

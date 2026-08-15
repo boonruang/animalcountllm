@@ -32,14 +32,53 @@ from .store.base import DetectionRecord, FrameRecord, make_store  # noqa: E402
 
 app = FastAPI(title="animalcountllm", version="0.1.0")
 
-store = make_store(os.environ.get("STORE_BACKEND", "sqlite"),
-                   os.environ.get("STORE_DSN", "./data/animals.db"))
-store.init_schema()
+
+def _writable(preferred: str, fallback: str, is_dir: bool = False) -> str:
+    """หา path ที่เขียนได้จริง ไม่ใช่เชื่อว่าเขียนได้
+
+    🔴 บทเรียน 2026-08-16 · deploy แรกบน App Platform ตายด้วย exit code 190
+    ก่อนจะ bind port ทัน แล้ว health check รายงานว่า connection refused
+    ซึ่งชี้ไปผิดที่ทั้งหมด ของจริงคือ **โฟลเดอร์แอปบน buildpack เขียนไม่ได้**
+    `./data/animals.db` เลยเปิดไม่ได้ตั้งแต่ตอน import
+    /tmp เขียนได้เสมอ และหายทุก deploy อยู่แล้วตามทาง ค. เลยไม่ได้เสียอะไรเพิ่ม
+    """
+    target = preferred if is_dir else os.path.dirname(os.path.abspath(preferred))
+    try:
+        os.makedirs(target, exist_ok=True)
+        probe = os.path.join(target, ".write_probe")
+        with open(probe, "w") as f:
+            f.write("1")
+        os.remove(probe)
+        return preferred
+    except OSError as e:
+        print(f"[startup] {preferred!r} เขียนไม่ได้ ({e.__class__.__name__}: {e}) "
+              f"-> ใช้ {fallback!r} แทน", flush=True)
+        return fallback
+
+
+STORE_DSN = _writable(os.environ.get("STORE_DSN", "./data/animals.db"),
+                      "/tmp/animalcountllm/animals.db")
+IMAGE_DIR = _writable(os.environ.get("IMAGE_DIR", "./data/frames"),
+                      "/tmp/animalcountllm/frames", is_dir=True)
+
+STORE_ERROR: str | None = None
+try:
+    store = make_store(os.environ.get("STORE_BACKEND", "sqlite"), STORE_DSN)
+    store.init_schema()
+except Exception as e:  # noqa: BLE001
+    # ห้ามตายตอน import · container ที่ตายเงียบบอกอะไรไม่ได้เลย
+    # ขึ้นมาแล้วรายงานผ่าน /healthz ว่าพังเพราะอะไร ดีกว่า connection refused
+    STORE_ERROR = f"{type(e).__name__}: {e}"
+    print(f"[startup] 🔴 เปิดฐานข้อมูลไม่ได้: {STORE_ERROR}", flush=True)
+    store = make_store("sqlite", "/tmp/animalcountllm-fallback.db")
+    store.init_schema()
+
 llm = VisionLLM()
 
 SAVE_IMAGES = os.environ.get("SAVE_IMAGES", "interesting")
-IMAGE_DIR = os.environ.get("IMAGE_DIR", "./data/frames")
 API_KEY = os.environ.get("API_KEY", "").strip()
+print(f"[startup] store={STORE_DSN} images={IMAGE_DIR} provider={llm.provider} "
+      f"model={llm.model} tracing={llm.tracing}", flush=True)
 
 
 def _auth(key: str | None) -> None:
@@ -65,10 +104,16 @@ def _save_image(raw: bytes, request_id: str) -> str | None:
 
 @app.get("/healthz")
 def healthz():
-    return {"status": "ok", "provider": llm.provider, "model": llm.model,
+    """ต้องตอบได้แม้ของบางอย่างพัง ไม่งั้น DO จะเห็นแค่ connection refused
+
+    ซึ่งบอกไม่ได้ว่าพังเพราะอะไร เสียเวลาไล่ผิดที่
+    """
+    return {"status": "ok" if not STORE_ERROR else "degraded",
+            "provider": llm.provider, "model": llm.model,
             "prompt_version": prompt_v1.PROMPT_VERSION,
             "store": os.environ.get("STORE_BACKEND", "sqlite"),
-            "tracing": llm.tracing}
+            "store_path": STORE_DSN, "store_error": STORE_ERROR,
+            "image_dir": IMAGE_DIR, "tracing": llm.tracing}
 
 
 @app.post("/v1/frames", response_model=FrameOut)

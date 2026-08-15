@@ -37,8 +37,13 @@ services:
         value: openrouter
       - key: LLM_BASE_URL
         value: https://openrouter.ai/api/v1
+      # 🔴 ชื่อต้องตรงกับที่ OpenRouter มีจริง เช็คที่ /api/v1/models ก่อนตั้ง
+      # ชื่อผิด = 404 ทุกเฟรม แล้วตกเป็น degraded เงียบๆ ไม่มี error ให้เห็นในหน้า DO
+      # (เกิดจริง 2026-08-16: ตั้ง qwen/qwen3-vl-30b-instruct ซึ่งไม่มีอยู่)
+      # ตัวนี้คือรุ่นเดียวกับที่รันบน LM Studio ในเครื่อง เทียบ local vs prod ได้ตัวแปรเดียว
+      # ถูกกว่า 7 เท่า: qwen/qwen3.7-flash ($0.03/$0.13 = ~$2.5/เดือน/กล้อง) ลองหลังจากมี baseline
       - key: LLM_MODEL
-        value: qwen/qwen3-vl-30b-instruct
+        value: qwen/qwen3.6-35b-a3b
       # 🔴 วัดกับ model+prompt ตัวนี้เท่านั้น เปลี่ยนโมเดลต้องวัดใหม่ ห้ามลอก
       - key: LLM_MAX_TOKENS
         value: "900"

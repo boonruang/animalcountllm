@@ -64,6 +64,25 @@ def test_counts_three_animals():
     assert all(b.detection_confidence > 0.4 for b in r.blobs)
 
 
+def test_small_animal_on_a_clean_background():
+    """🔴 regression · เคยพลาดมาแล้ว 2026-08-16
+
+    สัตว์ที่กินพื้นที่ไม่ถึง 0.5% ของเฟรม อยู่เหนือ percentile 99.5 ทั้งตัว
+    บนพื้นหลังเรียบ (ไม่มี noise) p1 กับ p99.5 เลยเท่ากัน แล้ว normalize คืนภาพดำทั้งใบ
+    **สัตว์หายเกลี้ยงโดยไม่มี error ให้เห็น** ซึ่งคือความล้มเหลวที่แย่ที่สุดของระบบเตือนภัย
+
+    เทสต์เดิมทุกข้อใส่ noise ไว้ ซึ่งบังเอิญกลบบั๊กนี้หมด
+    """
+    for rx in (8, 12, 16, 20):
+        r = thermal.analyze(make_frame([(320, 256, rx, int(rx * 0.75), 235)], noise=0))
+        assert len(r.blobs) >= 1, f"ก้อน {rx}x{int(rx*0.75)} บนพื้นเรียบต้องเจอ ได้ {len(r.blobs)}"
+
+
+def test_flat_frame_finds_nothing():
+    """เฟรมแบนสนิทจริงๆ ต้องไม่กุก้อนขึ้นมา (อีกด้านของ regression ข้างบน)"""
+    assert thermal.analyze(make_frame([], noise=0)).blobs == []
+
+
 def test_deterministic():
     """รันภาพเดิมสองครั้งต้องได้ผลเท่ากันเป๊ะ
 

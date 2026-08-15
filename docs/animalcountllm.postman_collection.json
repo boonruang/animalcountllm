@@ -1,0 +1,598 @@
+{
+  "info": {
+    "name": "animalcountllm",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "API นับสัตว์จากภาพกล้องความร้อน · ยิงตามลำดับใน folder 'ลำดับทดสอบ filter' จะเห็นพฤติกรรม fast attack / slow release ครบ"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://seal-app-qv5ao.ondigitalocean.app"
+    },
+    {
+      "key": "api_key",
+      "value": ""
+    },
+    {
+      "key": "camera_id",
+      "value": "cam-postman"
+    },
+    {
+      "key": "request_id",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "health",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "description": "ส่งเฉพาะตอนตั้ง API_KEY ไว้"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/healthz",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "healthz"
+          ]
+        },
+        "description": "ไม่มี field store_path = ยังรันโค้ดเวอร์ชันเก่า"
+      }
+    },
+    {
+      "name": "ลำดับทดสอบ filter (ยิงตามลำดับ)",
+      "item": [
+        {
+          "name": "1. เฟรมว่าง -> cold_start",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "ส่งเฉพาะตอนตั้ง API_KEY ไว้"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/frames",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "frames"
+              ]
+            },
+            "description": "ต้องได้ counts={} และ timing_ms.vlm=0 คือไม่ยิง LLM ไม่เสียเงิน",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"camera_id\": \"{{camera_id}}\",\n  \"image_base64\": \"iVBORw0KGgoAAAANSUhEUgAAAoAAAAIACAAAAAA3FoInAAAFHUlEQVR4nO3UMREAMAwDsbRoyh9hYfwQiYCXP5830LnhNgiQlgckJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgJEgOzlAUkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJEAGylwckJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUAEyF4ekJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQAESCz1gf0FwQoJ+eThwAAAABJRU5ErkJggg==\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "2. เฟรมว่าง -> stable",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "ส่งเฉพาะตอนตั้ง API_KEY ไว้"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/frames",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "frames"
+              ]
+            },
+            "description": "window โตเป็น 1",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"camera_id\": \"{{camera_id}}\",\n  \"image_base64\": \"iVBORw0KGgoAAAANSUhEUgAAAoAAAAIACAAAAAA3FoInAAAFHUlEQVR4nO3UMREAMAwDsbRoyh9hYfwQiYCXP5830LnhNgiQlgckJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgJEgOzlAUkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJEAGylwckJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUAEyF4ekJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQAESCz1gf0FwQoJ+eThwAAAABJRU5ErkJggg==\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "3. เฟรมว่าง -> stable",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "ส่งเฉพาะตอนตั้ง API_KEY ไว้"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/frames",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "frames"
+              ]
+            },
+            "description": "window โตเป็น 2",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"camera_id\": \"{{camera_id}}\",\n  \"image_base64\": \"iVBORw0KGgoAAAANSUhEUgAAAoAAAAIACAAAAAA3FoInAAAFHUlEQVR4nO3UMREAMAwDsbRoyh9hYfwQiYCXP5830LnhNgiQlgckJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgJEgOzlAUkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJEAGylwckJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUAEyF4ekJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQAESCz1gf0FwQoJ+eThwAAAABJRU5ErkJggg==\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "4. เจอ 2 ตัว -> ต้องขึ้น rising",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "ส่งเฉพาะตอนตั้ง API_KEY ไว้"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/frames",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "frames"
+              ]
+            },
+            "description": "🔴 จุดสำคัญที่สุด · reason ต้องมี 'jump 0.0->2 accepted' · filter ทั่วไปจะตัดค่านี้ทิ้งในฐานะ outlier แล้วระบบจะเงียบตอนช้างมา",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"camera_id\": \"{{camera_id}}\",\n  \"image_base64\": \"iVBORw0KGgoAAAANSUhEUgAAAoAAAAIACAAAAAA3FoInAAAMVklEQVR4nO3db3cSVwKAcYZhMIBCSEDjuiZrzJ7T7p79/p9kty8aY43rMQkkBBSIDMPsgZjabv0DsfLg8PzeaBvuSTSPd2bCnTvBDzmJkwc/t2SAYjkDCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIVcqslCHLBze/TXJqyX43WKcBpe0Ehij4EGMfj1AqzbVUCDIL8tL2oXC0X3heYjge9QTytcOJMmFmrEWCQj4obd6vlqFjdrt5MgWncO++N4kHv7dUonngwzqZVCDDIF0vV+ma9US3+cQYc9dqdy05vODLBTCqsRH6bjYcPtjZr5SiIopv+pgU24zQedC8vTl+3L00wkwqrkd+jh9v3NoqF2XXIhw+GxVyajhtXb85fvzLBbAp+QD99GJVn+TU2S1H+t+19kKaTeHjZniU4iJPlf43K7gwYluoPHs3yK+aDT18fh7NZ8vWrV6edoQVmCxpgWG4+efrX5ufymwnCjWmCOw+ePW8NLDBTyADD8v2DH/cb5S/k92uCtc1yITizwEwpsP3986BZDr+Y31QQbkRRIZ/LWWCmcAGGpWl/98vhvAOCQmWW6qnngRmCBRhE9b/9uEh/13NmbjIejf2ZdHZgAYblnaf7i/U3K3A86PXH42/2ZWlNAgxLjd3dZilceFhz97wbeyGSGVCAQaG2++TBgvPfVFh+8KQ78I3hzIBWRAd3tncf1z8s/Zt/YFR/vLt9Z/GBWk1QgPmN+v36xuITYC4XzkZ6J0FWMN/JoHB3a3PhE8BrYWlz6+6HJTP6vkEBFquNWvF2EQXFWqN6y7FaOVCAYbk65zsgf+pYrRzqHLAwe1tt6WO1aqjvZPDxxX/ffKxWDBVg+hU3un3NWK0YKMDJOB5PgLFaNUyAaTLoDZJ06WO1cqAAR712d3TLAEfddu+WY7VyoADHby8ub7msLxleXrwdG2BGUOeAV52zztVtCkxmIz0HzApoNUz67vx4qxx9+WaQPwyMOy+Pz985AWYFFeC4e1zbvFtY+NMng9Pnx12PwJlBLUhNhu3j7Wq06IrAZNg6Pm57U0h2YEvyk8HJs3JhwTX5yeDs6NmJ66EzBAswjTu/FPK5hQpMBmeHP/3SiT0DzA7utsxkeDb9Zd77gmc/gW4d/vvwzANwloA3pieDs+n7anPtjJDLpZPRoH3006H3pWcLuTVHMjhLx4M59oaZ5Te8bP3XvWEyB92cKBmcxd3TL+yOdZNf292xsojdni0ZjvsXr90fcI3BO6Qm15tPfmKH1NkzGsYjd0jNMHqL3jS5mh1eP75HdOwe0VlHB3iT4Jm75K8nPsDrBAcXPidkLcGblP/KJyWtqVWYAafSdJKMps+Ka/msuLWyKgFeX/PmctMKf/0fPi0z+1YowBnvuFwzbjEglAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBClVgP70+CIJccP27NJemuTVhgKvSXhBFhffHo8k4jtM1qdAAeUE+KhbyhUq18v67Me73+uPJeBRPsp+gAcKCIB+VapuVqFhtVIuzY3A66rV7o7h/2R3Gk6xPgwbICqNi6V5jZ6dWjH4/A8aj7slJ+81wFCe5LDNAUhCWNhv17Yc7jbuFfCGKbi5Cas3xZPy2ffL6vNO+HCZZngSDH+ivYI2FUaW5u3e/Xq+Votl1yM0HZlcg8bDb6Zy9OG71szwJOgNigrBU39nb362X7kT54Pcfmv5nWCxvDf+yVXtx0snwJGiA6PT3dG+nvhF+mPp+KwjzxXKlUm88y/IkaICQsLS1s/d0t1mJwk++Jgjy+ahSrdVenFwMM1qgATLC0oP9g72deikMPv+6fKFY3mwcHp1mtEADRATR1pN/HXx2+rt5ZaEcVaqlND7L5k+lDRARVnb+fvCX8hemv/evzRei3LDXH49zGWSAhLDc3Ntrluf8yw8K5eZeuxf3s3gQNkBAWGruH+xUwvkHVHYO+vEki6eBBrh8QbS1/4/9rZv3PeYcEceZPA00wOULyw8O9pul+SfA2ZwZ9y/fZvA00BXRSxcUao8eN8vhomeNjx/VCvNPmt8LA1y64E79YWPB/nK5sNx4WL9jgPpq+Y3N7XsLnABeC6J725sb2ZsvsvcnWnVBdHfrNiXlNza37i7c7cozwGULomqzdr30eSFBsdasGqC+VlAoV8u3uJoIbjluxTkDLv+vvFC8uf1tKeNWW/b+RKsv+Pj6v282bqUZoFAGKJQBLl96y3t90yzeI2yASzcZj8aTJY5bbQa4bOl40BuM06WNW3EGuGxp3Gt1R7cIcNRt9WID1FcH+Pbi8mrxY+nk6vLirQHqq02uLs/fLFxSGr85v023q85D8NKl7zqv24NFV9cng/brzrvMHYENcPnScffVy9aCBSaD1stX3exdg7gkH5AMTg8rUX6RNfnJsHV0eLrwtPkd8J6Q5Uvji6Moiu7/345EXxjxn6OL7F2CGCAiGbaiSq1SmPtff9I/OTxqZfGuTGdARDJovWhUo/l2Rsil05e/WPSs8TvhIRiR9E9+LuXm2Rsml0vifuvw55NM7otggJA0vngeDOfYHSuXJsPOyYvD55k8ATRATDI8jbvtL+wP+H76O37m/oD68ws86/e63c/skDpdf5VcdU5euEOqvoFkMh4NLtsf3SP6Or9J/G7YOT5yj2h9E+l4EPd73Qt3yRc4CfZbH3lOSByvzXNC/DEMPQl2S/dervGTknxQDf0NCHxWnEBpOklGg3OflimuwWQyygVBt+XzggUlmE4vSd75xHSB0ixf7H6SS/KFMkChDFAoAxTKAIUyQKEMUCgDFMoAhTJAoQxQKAMUygCFMkChDFAoAxTKAIUyQKEMUCgDFMoAhTJAoQxQKAMUygCFMkChDFAoAxTKAIUyQKEMUAao9eUMKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBygC1vpwBhTJAoQxQKAMUygCFMkChDFAoAxTKAIUyQKEMUCgDFMoAhTJAoQxQKAMUygCFMkChDFAoAxTKAIUyQKEMUCgDFMoAhTJAoQxQKAMUygCFMkChDFAoAxTKAIUyQKEMUCgDFMoAhTJAoQxQKAMUygCFMkChDFAoAxTKAIUyQKEMUCgDFMoAhTJAGaDWlzOgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYolAEKZYBCGaBQBiiUAQplgEIZoFAGKJQBCmWAQhmgUAYoA1Rubf0P1ivpXwereroAAAAASUVORK5CYII=\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "5. ว่าง -> falling แต่ accepted=false",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "ส่งเฉพาะตอนตั้ง API_KEY ไว้"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/frames",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "frames"
+              ]
+            },
+            "description": "ยังไม่ประกาศว่าหมดจากเฟรมเดียว (slow release)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"camera_id\": \"{{camera_id}}\",\n  \"image_base64\": \"iVBORw0KGgoAAAANSUhEUgAAAoAAAAIACAAAAAA3FoInAAAFHUlEQVR4nO3UMREAMAwDsbRoyh9hYfwQiYCXP5830LnhNgiQlgckJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgJEgOzlAUkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJEAGylwckJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUAEyF4ekJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQAESCz1gf0FwQoJ+eThwAAAABJRU5ErkJggg==\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "6. ว่างซ้ำ -> ยังไม่ยอมรับ",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "ส่งเฉพาะตอนตั้ง API_KEY ไว้"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/frames",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "frames"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"camera_id\": \"{{camera_id}}\",\n  \"image_base64\": \"iVBORw0KGgoAAAANSUhEUgAAAoAAAAIACAAAAAA3FoInAAAFHUlEQVR4nO3UMREAMAwDsbRoyh9hYfwQiYCXP5830LnhNgiQlgckJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgJEgOzlAUkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJEAGylwckJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUAEyF4ekJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQAESCz1gf0FwQoJ+eThwAAAABJRU5ErkJggg==\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "7. ว่างซ้ำ -> ยังไม่ยอมรับ",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "ส่งเฉพาะตอนตั้ง API_KEY ไว้"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/frames",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "frames"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"camera_id\": \"{{camera_id}}\",\n  \"image_base64\": \"iVBORw0KGgoAAAANSUhEUgAAAoAAAAIACAAAAAA3FoInAAAFHUlEQVR4nO3UMREAMAwDsbRoyh9hYfwQiYCXP5830LnhNgiQlgckJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgJEgOzlAUkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJEAGylwckJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUAEyF4ekJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQAESCz1gf0FwQoJ+eThwAAAABJRU5ErkJggg==\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "8. ว่างซ้ำ -> ถึงจะยอมรับว่าหมด",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "ส่งเฉพาะตอนตั้ง API_KEY ไว้"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/frames",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "frames"
+              ]
+            },
+            "description": "ครบ 4 เฟรมนิ่งถึงยอมรับ",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"camera_id\": \"{{camera_id}}\",\n  \"image_base64\": \"iVBORw0KGgoAAAANSUhEUgAAAoAAAAIACAAAAAA3FoInAAAFHUlEQVR4nO3UMREAMAwDsbRoyh9hYfwQiYCXP5830LnhNgiQlgckJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgJEgOzlAUkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJEAGylwckJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUAEyF4ekJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQAESCz1gf0FwQoJ+eThwAAAABJRU5ErkJggg==\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "เคสอื่น",
+      "item": [
+        {
+          "name": "สัตว์อยู่ไกล (ก้อนเล็ก)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "ส่งเฉพาะตอนตั้ง API_KEY ไว้"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/frames",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "frames"
+              ]
+            },
+            "description": "289 px · ทดสอบว่าสัตว์ไกลไม่ถูกตัดทิ้งเงียบๆ ที่ชั้น CV",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"camera_id\": \"{{camera_id}}-far\",\n  \"image_base64\": \"iVBORw0KGgoAAAANSUhEUgAAAoAAAAIACAAAAAA3FoInAAAGf0lEQVR4nO3aTWtUVxzA4ZnMCzQRNK0SS6EUabHg9/8oXVmCFIoN0SZSHe28ZIriIst6ZvFD8jy7s5k7XH78Z865d/rrBDpH4bVBgLRMQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkNW8v/3WbTifTyWQ/2e/rb/L1EuCw6dFyMT+aTG62m/WNBAcJcNRs+c2DByfz6X777vr6/Xo3/EF3mwAHzY6/ffzD9/eX0/36zcs///p7pcAhAhwzOz578suPj+59nIBvL/94fn6hwCECHDI7Pnv67OdHx8uPm5D7p6cni4kChwhwxHRx+uTZ08fHs+nH1Wy5nE02642dyAABjpguv/vpydnJ7PNqfnK2ub68XtsKfzkH0SOm83sPT49nt36RTx/em38ah3wZAQ45mi8Wt2/d0eLTkSBfzF0bcrPdbG5urzeb7e01/5cAR+y3b19d3Tp32a2uXr3d+gs4wCZkxH79+sWDxfTzLni/W12cv3htDzJCgCP2m6vzxWT3+Rxwvbr8/bfzq40JOECAQ3ari8nmnSchhxPgmN3qYvPmpWfBBxPgoN1q+8/lC2/DHEqAo3Yf1u9feR/wUAIctt99+Ncb0YcS4AG8in84B9GkBEhKgKQESEqApARISoCkBEhKgKQESEqApARISoCkBEhKgKQESEqApARISoCkBEhKgKQESEqApARISoCkBEhKgKQESEqApARISoCkBEhKgKQESEqApARISoCkBEhKgKQESEqApARISoCkBEhKgKQESEqApARISoCkBEhKgKQESEqApARISoCkBEhKgKQESEqApARISoCkBEhKgKQESEqApARISoCkBEhKgKQESEqApARISoCkBEhKgKQESEqApARISoCkBEhKgKQESEqApARISoCkBEhKgKQESEqApARISoAIkLvLBCQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQFICJCVAUgIkJUBSAiQlQATI3WUCkhIgKQGSEiApAZISICkBkhIgKQGSEiApAZISICkBkhIgKQGSEiApAZISICkBkhIgKQGSEiApAZISICkBkhIgKQGSEiApAZISICkBkhIgKQGSEiApAZISICkBkhIgKQGSEiApAZISICkBkhIgKQGSEiApAZISICkBkhIgAuTuMgFJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCZCUAEkJkJQASQmQlABJCRABMrmz/gO2OanLrqoJHwAAAABJRU5ErkJggg==\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "3 ตัว",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "ส่งเฉพาะตอนตั้ง API_KEY ไว้"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/frames",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "frames"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"camera_id\": \"{{camera_id}}-3\",\n  \"image_base64\": \"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\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "base64 เสีย -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "description": "ส่งเฉพาะตอนตั้ง API_KEY ไว้"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/frames",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "frames"
+              ]
+            },
+            "description": "ต้องได้ 400 ไม่ใช่ 500",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"camera_id\": \"{{camera_id}}\",\n  \"image_base64\": \"ไม่ใช่ base64\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ดูหน้าต่าง 100 วิ",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "description": "ส่งเฉพาะตอนตั้ง API_KEY ไว้"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/v1/cameras/{{camera_id}}/window",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "v1",
+            "cameras",
+            "{{camera_id}}",
+            "window"
+          ]
+        },
+        "description": "ดูว่า filter ตัดสินจากอะไร"
+      }
+    },
+    {
+      "name": "ย้อนดูเฟรมเดียว",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "description": "ส่งเฉพาะตอนตั้ง API_KEY ไว้"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/v1/frames/{{request_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "v1",
+            "frames",
+            "{{request_id}}"
+          ]
+        },
+        "description": "ตั้งตัวแปร request_id จาก response ของข้อ 4 ก่อน"
+      }
+    },
+    {
+      "name": "บันทึก ground truth",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "description": "ส่งเฉพาะตอนตั้ง API_KEY ไว้"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/v1/frames/{{request_id}}/truth",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "v1",
+            "frames",
+            "{{request_id}}",
+            "truth"
+          ]
+        },
+        "description": "ไม่มีข้อมูลนี้ = calibrate species_confidence ไม่ได้ตลอดกาล",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"counts\": {\n    \"elephant\": 2\n  },\n  \"reviewer\": \"toy\",\n  \"comment\": \"ตรวจจากภาพจริงแล้ว\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "rollup + ลบของเก่า",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "description": "ส่งเฉพาะตอนตั้ง API_KEY ไว้"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/v1/maintenance/rollup",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "v1",
+            "maintenance",
+            "rollup"
+          ]
+        },
+        "description": "ปกติเรียกจาก cron"
+      }
+    }
+  ]
+}

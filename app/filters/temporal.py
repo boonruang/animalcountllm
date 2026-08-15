@@ -133,7 +133,20 @@ def decide(
         )
 
     # ---- confidence ต่ำ: รอเฟรมถัดไปยืนยัน แต่ตอบกลับทันที ไม่ค้าง HTTP request
-    weak = {s: c for s, c in raw_conf.items() if c < CONF_COMMIT and raw_counts.get(s, 0) > 0}
+    # 🔴 unknown ไม่เข้าเงื่อนไขรอเฟรมถัดไป · วัดเจอ 2026-08-16
+    #
+    # โมเดลตีความ confidence ของคำตอบ "unknown" คนละแบบสิ้นเชิง วัดกับภาพเดียวกัน:
+    #   qwen3.7-flash    unknown ที่ conf 0.00-0.20   ("ไม่มั่นใจอะไรเลย")
+    #   gemma-3-12b-it   unknown ที่ conf 0.90-1.00   ("มั่นใจมากว่าดูไม่ออก")
+    # ทั้งคู่พูดเรื่องเดียวกัน แต่เกณฑ์ 0.60 อ่านคนละความหมาย
+    #
+    # ผลคือ unknown ของ flash จะค้าง provisional ตลอดกาล ทั้งที่ **"ดูไม่ออก" คือคำตอบ
+    # ที่จบแล้ว ไม่ใช่คำตอบชั่วคราว** เฟรมหน้าก็ดูไม่ออกเหมือนเดิม รอไปไม่ได้อะไรเพิ่ม
+    #
+    # การรอมีเหตุผลเฉพาะตอนโมเดลบอกชนิดมาแล้วแต่ไม่มั่นใจ ("น่าจะช้าง 0.5")
+    # ตรงนั้นเฟรมถัดไปช่วยยืนยันได้จริง
+    weak = {s: c for s, c in raw_conf.items()
+            if c < CONF_COMMIT and raw_counts.get(s, 0) > 0 and s != "unknown"}
     if weak and provisional_streak < MAX_PROVISIONAL_FRAMES:
         agree = [
             h.confidence[s]

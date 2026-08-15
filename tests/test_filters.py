@@ -104,6 +104,32 @@ def test_low_confidence_confirmed_by_next_frame():
     assert f.confidence > 0.55, "รวมสองเฟรมแล้วต้องมั่นใจขึ้นเล็กน้อย"
 
 
+def test_unknown_never_waits_for_the_next_frame():
+    """🔴 regression · "ดูไม่ออก" คือคำตอบที่จบแล้ว ไม่ใช่คำตอบชั่วคราว
+
+    วัดเจอ 2026-08-16 ว่าโมเดลให้ confidence กับคำตอบ unknown คนละความหมาย:
+      qwen3.7-flash   0.00-0.20  ("ไม่มั่นใจอะไรเลย")
+      gemma-3-12b-it  0.90-1.00  ("มั่นใจมากว่าดูไม่ออก")
+    เกณฑ์ 0.60 เลยอ่านสองอย่างนี้ต่างกัน ทั้งที่มันพูดเรื่องเดียวกัน
+    ปล่อยไว้ = unknown ของ flash ค้าง provisional ทุกเฟรมตลอดกาล
+    """
+    h = hist([0] * 5)
+    f, _ = decide({"unknown": 2}, {"unknown": 0.0}, h, T0 + 50)
+    assert f.state != "unconfirmed", "unknown ต้องไม่ค้างรอเฟรมถัดไป"
+    assert "awaiting" not in f.reason
+    assert f.counts.get("unknown") == 2, "แต่ต้องยังรายงานว่ามีของร้อน 2 ก้อนที่ระบุไม่ได้"
+
+
+def test_named_species_with_low_confidence_still_waits():
+    """แต่ถ้าโมเดลบอกชนิดมาแล้วไม่มั่นใจ ('น่าจะช้าง 0.5') การรอยังมีเหตุผล
+
+    เฟรมถัดไปช่วยยืนยันได้จริงในกรณีนี้ ต่างจาก unknown
+    """
+    h = hist([0] * 5)
+    f, _ = decide({"elephant": 2}, {"elephant": 0.5}, h, T0 + 50)
+    assert f.state == "unconfirmed"
+
+
 def test_provisional_does_not_wait_forever():
     """รอได้สูงสุด 2 เฟรม (20 วิ = ช้างเดินไป ~28 ม.) เกินนั้นต้อง commit"""
     h = hist([0] * 5)

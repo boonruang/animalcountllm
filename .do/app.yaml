@@ -52,9 +52,14 @@ services:
       # วัดได้ต่อเมื่อมีภาพจากไซต์จริง ซึ่งยังไม่มี
       - key: LLM_MODEL
         value: qwen/qwen3.7-flash
-      # 🔴 วัดกับ model+prompt ตัวนี้เท่านั้น เปลี่ยนโมเดลต้องวัดใหม่ ห้ามลอก
+      # 🔴 ปิด thinking ก่อน ค่อยตั้ง max_tokens · วัดจริง 2026-08-16 บน qwen3.7-flash
+      #   thinking เปิด: 801 tok, finish=length, ตอบไม่จบแม้ที่ 2000 · 13-34 วิ
+      #   thinking ปิด:   73-86 tok, finish=stop, JSON ครบ · 2.9-7.0 วิ
+      # 300 = เผื่อจาก 86 ที่วัดได้ · เพิ่มโควตาไม่เคยแก้ปัญหา thinking ได้เลย
+      - key: LLM_DISABLE_REASONING
+        value: "true"
       - key: LLM_MAX_TOKENS
-        value: "900"
+        value: "300"
       - key: LLM_TIMEOUT_S
         value: "25"
 

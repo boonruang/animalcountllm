@@ -47,6 +47,19 @@ class VisionLLM:
         self.api_key = os.environ.get("LLM_API_KEY", "not-needed")
         self.max_tokens = int(os.environ.get("LLM_MAX_TOKENS", "200"))
         self.timeout = float(os.environ.get("LLM_TIMEOUT_S", "25"))
+        # 🔴 ปิด thinking · วัดจริง 2026-08-16 บน qwen3.7-flash ผ่าน OpenRouter
+        #   ไม่ตั้งอะไร        13.0 วิ · 801 tok · finish=length ตอบไม่จบ
+        #   reasoning enabled=false  2.9 วิ ·  86 tok · finish=stop  JSON ครบ
+        # เร็วขึ้น 4.5 เท่า · output token ลด 9 เท่า ซึ่งคือค่าใช้จ่ายเกือบทั้งหมด
+        # ($3.29 -> $0.89 ต่อเดือนต่อกล้อง)
+        #
+        # ที่ลองแล้วไม่ได้ผล อย่าเสียเวลาลองซ้ำ:
+        #   reasoning.effort=low            ไม่ต่างจากไม่ตั้งเลย
+        #   chat_template enable_thinking   OpenRouter ไม่ส่งต่อให้ provider
+        #   reasoning.max_tokens=0          provider ตอบ 400
+        #   reasoning.exclude=true          🔴 กับดัก · ซ่อนความคิดจาก response
+        #                                   แต่ยังคิดจริงและยังคิดเงินเต็ม
+        self.no_reasoning = os.environ.get("LLM_DISABLE_REASONING", "true").lower() == "true"
         self.sample_rate = float(os.environ.get("LANGSMITH_SAMPLE_RATE", "0.05"))
         self.tracing = os.environ.get("LANGSMITH_TRACING", "false").lower() == "true"
 
@@ -71,9 +84,13 @@ class VisionLLM:
             from langchain_openai import ChatOpenAI
             from langchain_core.messages import HumanMessage, SystemMessage
 
+            kw = {}
+            if self.no_reasoning:
+                # LM Studio ไม่รู้จัก field นี้แต่ไม่ error มันข้ามไปเฉยๆ
+                kw["extra_body"] = {"reasoning": {"enabled": False}}
             llm = ChatOpenAI(
                 base_url=self.base_url, api_key=self.api_key, model=self.model,
-                max_tokens=self.max_tokens, temperature=0, timeout=self.timeout,
+                max_tokens=self.max_tokens, temperature=0, timeout=self.timeout, **kw,
             )
             msgs = [
                 SystemMessage(content=system),

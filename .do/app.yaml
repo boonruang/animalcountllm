@@ -1,0 +1,78 @@
+# DigitalOcean App Platform spec
+#
+# 🔴 ค่าที่เป็นความลับ (LLM_API_KEY, LANGSMITH_API_KEY, API_KEY) **ไม่อยู่ในไฟล์นี้**
+# ไฟล์นี้อยู่บน GitHub ที่เป็น public · ตั้งใน DO Console → Settings →
+# App-Level Environment Variables แล้วเลือกชนิด **Encrypted** ไม่ใช่ Plain
+#
+# workers ต้องเป็น 1 · SQLite เป็นไฟล์เดียว หลาย worker เขียนพร้อมกันจะชนกัน
+# และหน้าต่าง 100 วิ ต้องเห็นข้อมูลชุดเดียวกัน ไม่ใช่แยกกันคนละ process
+
+name: animalcountllm
+region: sgp
+
+services:
+  - name: api
+    github:
+      repo: boonruang/animalcountllm
+      branch: main
+      deploy_on_push: true
+
+    # basic-xxs = 512 MB · พอสำหรับ numpy/scipy เพราะไม่มี torch ไม่มีโมเดลในเครื่อง
+    # ถ้า build ล้มเพราะ memory ค่อยขยับเป็น basic-xs
+    instance_size_slug: basic-xxs
+    instance_count: 1
+    http_port: 8080
+
+    run_command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 1
+
+    health_check:
+      http_path: /healthz
+      initial_delay_seconds: 20
+      period_seconds: 30
+      failure_threshold: 3
+
+    envs:
+      # ---- LLM (prod ใช้ OpenRouter เพราะ container ไม่มี GPU)
+      - key: LLM_PROVIDER
+        value: openrouter
+      - key: LLM_BASE_URL
+        value: https://openrouter.ai/api/v1
+      - key: LLM_MODEL
+        value: qwen/qwen3-vl-30b-instruct
+      # 🔴 วัดกับ model+prompt ตัวนี้เท่านั้น เปลี่ยนโมเดลต้องวัดใหม่ ห้ามลอก
+      - key: LLM_MAX_TOKENS
+        value: "900"
+      - key: LLM_TIMEOUT_S
+        value: "25"
+
+      # ---- LangSmith · ที่เดียวที่ log รอดข้าม deploy เพราะดิสก์ที่นี่ไม่ถาวร
+      - key: LANGSMITH_TRACING
+        value: "true"
+      - key: LANGSMITH_PROJECT
+        value: animalcountllm
+      # เฟรมปกติเก็บ 5% · เฟรมผิดปกติเก็บ 100% เสมอ (โค้ดบังคับ ไม่ได้ตั้งที่นี่)
+      - key: LANGSMITH_SAMPLE_RATE
+        value: "0.05"
+
+      # ---- storage
+      # 🔴 ./data หายทุก deploy/restart/scale — App Platform ไม่มีดิสก์ถาวร
+      # เป็นการตัดสินใจของ POC ไม่ใช่บั๊ก · เฟรมแรกๆ หลัง deploy จะขึ้น cold_start
+      - key: STORE_BACKEND
+        value: sqlite
+      - key: STORE_DSN
+        value: ./data/animals.db
+      - key: RETENTION_DAYS
+        value: "7"
+      - key: SAVE_IMAGES
+        value: interesting
+      - key: IMAGE_DIR
+        value: ./data/frames
+
+      # ---- CV · ต้องจูนใหม่เมื่อได้ภาพจากไซต์จริง (ต้องรู้ FOV และระยะไกลสุด)
+      - key: CV_MIN_AREA_PX
+        value: "40"
+
+      # ---- ที่เหลือตั้งใน Console เป็น Encrypted:
+      #   LLM_API_KEY         (OpenRouter)
+      #   LANGSMITH_API_KEY
+      #   API_KEY             (กัน endpoint · ว่างไว้ = ใครก็ยิงได้)

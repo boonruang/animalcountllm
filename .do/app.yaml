@@ -37,8 +37,21 @@ services:
         value: openrouter
       - key: LLM_BASE_URL
         value: https://openrouter.ai/api/v1
+      # 🔴 ชื่อต้องตรงกับที่ OpenRouter มีจริง เช็คที่ /api/v1/models ก่อนตั้ง
+      # ชื่อผิด = 404 ทุกเฟรม แล้วตกเป็น degraded เงียบๆ ไม่มี error ให้เห็นในหน้า DO
+      # (เกิดจริง 2026-08-16: ตั้ง qwen/qwen3-vl-30b-instruct ซึ่งไม่มีอยู่)
+      #
+      # ทดสอบแล้ว 2026-08-16 ด้วยภาพที่เดาไม่ได้ (ก้อน 7 ก้อน + รหัสสุ่ม K7QZM):
+      #   qwen3.7-flash     8.6 วิ  ตอบถูก  ~$0.00007/เฟรม  ~$2.5/เดือน/กล้อง
+      #   qwen3.6-35b-a3b   4.9 วิ  ตอบถูก  ~$0.00043/เฟรม  ~$18/เดือน/กล้อง
+      # เริ่มจากตัวถูกก่อน แล้วอัปถ้าพิสูจน์ได้ว่าไม่พอ ไม่ใช่จ่ายแพงไว้ก่อนโดยไม่มีหลักฐาน
+      #
+      # ⚠️ การทดสอบนั้นง่ายเกินกว่าจะตัดสินงานจริง มันวัดได้แค่ว่า "โมเดลเห็นภาพไหม"
+      # สิ่งที่ยังไม่ได้วัดคือจุดที่จะพังจริง: ก้อน contrast ต่ำ · วัตถุ 15x10 px ที่อาจหาย
+      # ตอนโมเดลย่อภาพ · แยกช้างจากควายจากวัวโดยไม่มีสีไม่มีลาย
+      # วัดได้ต่อเมื่อมีภาพจากไซต์จริง ซึ่งยังไม่มี
       - key: LLM_MODEL
-        value: qwen/qwen3-vl-30b-instruct
+        value: qwen/qwen3.7-flash
       # 🔴 วัดกับ model+prompt ตัวนี้เท่านั้น เปลี่ยนโมเดลต้องวัดใหม่ ห้ามลอก
       - key: LLM_MAX_TOKENS
         value: "900"
@@ -55,18 +68,20 @@ services:
         value: "0.05"
 
       # ---- storage
-      # 🔴 ./data หายทุก deploy/restart/scale — App Platform ไม่มีดิสก์ถาวร
-      # เป็นการตัดสินใจของ POC ไม่ใช่บั๊ก · เฟรมแรกๆ หลัง deploy จะขึ้น cold_start
+      # 🔴 ต้องเป็น /tmp ไม่ใช่ ./data — โฟลเดอร์แอปบน buildpack **เขียนไม่ได้**
+      # deploy แรก 2026-08-16 ตายด้วย exit 190 ตอน import เพราะเปิด ./data/animals.db ไม่ได้
+      # แล้ว log ขึ้นแค่ 'connection refused' ซึ่งชี้ไปผิดที่ทั้งหมด
+      # /tmp หายทุก deploy เหมือนกัน แต่นั่นคือทาง ค. ที่เลือกไว้แล้ว ไม่ได้เสียอะไรเพิ่ม
       - key: STORE_BACKEND
         value: sqlite
       - key: STORE_DSN
-        value: ./data/animals.db
+        value: /tmp/animalcountllm/animals.db
       - key: RETENTION_DAYS
         value: "7"
       - key: SAVE_IMAGES
         value: interesting
       - key: IMAGE_DIR
-        value: ./data/frames
+        value: /tmp/animalcountllm/frames
 
       # ---- CV · ต้องจูนใหม่เมื่อได้ภาพจากไซต์จริง (ต้องรู้ FOV และระยะไกลสุด)
       - key: CV_MIN_AREA_PX

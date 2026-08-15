@@ -1,0 +1,13 @@
+# ชั้น CV และชั้น filter ใช้แค่สามตัวแรก ไม่มี torch ไม่มี GPU ใน container
+numpy>=2.0
+scipy>=1.14
+pillow>=11.0
+
+fastapi>=0.115
+uvicorn[standard]>=0.32
+python-multipart>=0.0.20
+pydantic>=2.9
+
+langchain-openai>=0.2
+langsmith>=0.1
+python-dotenv>=1.0

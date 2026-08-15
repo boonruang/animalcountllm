@@ -1,0 +1,19 @@
+# 🔴 คีย์ห้ามขึ้น git เด็ดขาด · repo นี้จะเป็น public
+.env
+.env.*
+!.env.example
+*.key
+
+# ข้อมูลรันไทม์
+data/
+*.db
+*.db-wal
+*.db-shm
+frames/
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.DS_Store

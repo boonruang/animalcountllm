@@ -14,8 +14,8 @@ import time
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
-from ..schemas import Blob, LLMVerdict, SpeciesCall
-from . import prompt_v1
+from ..schemas import Blob, LLMVerdict, SpeciesTally
+from . import prompt_v2 as prompt
 
 VALID = {"elephant", "cattle", "human", "other_animal", "unknown"}
 
@@ -45,7 +45,15 @@ class VisionLLM:
         self.base_url = os.environ.get("LLM_BASE_URL", "http://localhost:1234/v1")
         self.model = os.environ.get("LLM_MODEL", "qwen3.6-35b-a3b")
         self.api_key = os.environ.get("LLM_API_KEY", "not-needed")
-        self.max_tokens = int(os.environ.get("LLM_MAX_TOKENS", "200"))
+        # 🔴 max_tokens ต้องโตตามจำนวนก้อน ไม่ใช่ค่าคงที่
+        #
+        # เจอจริง 2026-08-16 กับภาพจากไซต์: 16 ก้อน · finish=length ที่ 300 token
+        # แล้วทุกก้อนกลายเป็น unknown · ตอนวัดครั้งแรกใช้ภาพ 2 ก้อน (73-86 token)
+        # แล้วผมเอาตัวเลขนั้นไปตั้งเป็นค่าคงที่ ซึ่งผิดตั้งแต่ต้น
+        # คำตอบยาวตามจำนวนก้อนโดยตรง เพราะต้องตอบทีละก้อนตาม schema
+        # v2 ตอบสรุปรายชนิด คำตอบเลยสั้นคงที่ไม่ว่าเฟรมจะรกแค่ไหน
+        # v1 ตอบรายก้อน ยาวตามจำนวนก้อน แล้วทะลุโควตาที่ 16 ก้อน
+        self.max_tokens = int(os.environ.get("LLM_MAX_TOKENS", "300"))
         self.timeout = float(os.environ.get("LLM_TIMEOUT_S", "25"))
         # 🔴 ปิด thinking · วัดจริง 2026-08-16 บน qwen3.7-flash ผ่าน OpenRouter
         #   ไม่ตั้งอะไร        13.0 วิ · 801 tok · finish=length ตอบไม่จบ
@@ -77,7 +85,8 @@ class VisionLLM:
     # ---------------------------------------------------------------- call
     def classify(self, image_b64: str, blobs: List[Blob], w: int, h: int,
                  image_hash: str = "") -> LLMResult:
-        system, user = prompt_v1.build(blobs, w, h)
+        system, user = prompt.build(blobs, w, h)
+        max_tokens = self.max_tokens
         t0 = time.perf_counter()
 
         try:
@@ -90,7 +99,7 @@ class VisionLLM:
                 kw["extra_body"] = {"reasoning": {"enabled": False}}
             llm = ChatOpenAI(
                 base_url=self.base_url, api_key=self.api_key, model=self.model,
-                max_tokens=self.max_tokens, temperature=0, timeout=self.timeout, **kw,
+                max_tokens=max_tokens, temperature=0, timeout=self.timeout, **kw,
             )
             msgs = [
                 SystemMessage(content=system),
@@ -105,14 +114,14 @@ class VisionLLM:
             # ผลพลอยได้: ภาพจากไซต์อนุรักษ์ไม่ต้องไปนอนบนเซิร์ฟเวอร์เจ้าอื่น
             resp = llm.invoke(msgs, config={
                 "metadata": {"image_hash": image_hash, "blobs": len(blobs),
-                             "frame": f"{w}x{h}", "prompt_version": prompt_v1.PROMPT_VERSION},
+                             "frame": f"{w}x{h}", "prompt_version": prompt.PROMPT_VERSION},
                 "run_name": "classify_thermal_frame",
             })
             dt = (time.perf_counter() - t0) * 1000
             meta = resp.response_metadata or {}
             usage = getattr(resp, "usage_metadata", None) or {}
             text = resp.content if isinstance(resp.content, str) else str(resp.content)
-            verdict, err = parse(text, {b.id for b in blobs})
+            verdict, err = parse(text)
             return LLMResult(
                 verdict=verdict, raw=text,
                 finish_reason=meta.get("finish_reason"),
@@ -126,10 +135,10 @@ class VisionLLM:
                              f"{type(e).__name__}: {e}")
 
 
-def parse(text: str, known_ids: set) -> Tuple[Optional[LLMVerdict], Optional[str]]:
+def parse(text: str) -> Tuple[Optional[LLMVerdict], Optional[str]]:
     """แกะ JSON จากคำตอบ ทนกับ markdown fence และข้อความนำ
 
-    โมเดลสาย thinking ชอบห่อ JSON ด้วย ```json แม้จะสั่งว่าอย่าห่อ
+    โมเดลชอบห่อ JSON ด้วย ```json แม้จะสั่งว่าอย่าห่อ
     """
     if not text:
         return None, "empty response"
@@ -141,31 +150,21 @@ def parse(text: str, known_ids: set) -> Tuple[Optional[LLMVerdict], Optional[str
     except json.JSONDecodeError as e:
         return None, f"bad JSON: {e}"
 
-    calls = []
-    for c in data.get("calls", []):
-        try:
-            bid = int(c["blob_id"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        if bid not in known_ids:
-            continue  # โมเดลกุ region ที่ CV ไม่ได้เจอ ทิ้ง
-        sp = str(c.get("species", "unknown")).lower().strip()
+    animals = []
+    for a in data.get("animals", []):
+        sp = str(a.get("species", "unknown")).lower().strip()
         if sp not in VALID:
             sp = "unknown"
         try:
-            conf = float(c.get("confidence", 0.0))
+            n = max(0, int(a.get("count", 0)))
+        except (TypeError, ValueError):
+            n = 0
+        try:
+            conf = float(a.get("confidence", 0.0))
         except (TypeError, ValueError):
             conf = 0.0
-        calls.append(SpeciesCall(blob_id=bid, species=sp,
-                                 confidence=max(0.0, min(1.0, conf)),
-                                 reason=str(c.get("reason", ""))[:200]))
-
-    # ก้อนที่โมเดลไม่ตอบถึง ต้องเป็น unknown ไม่ใช่หายไปเฉยๆ
-    answered = {c.blob_id for c in calls}
-    for bid in sorted(known_ids - answered):
-        calls.append(SpeciesCall(blob_id=bid, species="unknown", confidence=0.0,
-                                 reason="model did not answer for this region"))
-
-    merged = [[int(i) for i in g] for g in data.get("merged_ids", [])
-              if isinstance(g, list) and len(g) > 1]
-    return LLMVerdict(calls=calls, merged_blob_ids=merged), None
+        if n == 0:
+            continue
+        animals.append(SpeciesTally(species=sp, count=n,
+                                    confidence=max(0.0, min(1.0, conf))))
+    return LLMVerdict(animals=animals), None

@@ -25,9 +25,9 @@ load_dotenv()
 from .cv import thermal  # noqa: E402
 from .filters import temporal  # noqa: E402
 from .llm.client import VisionLLM  # noqa: E402
-from .llm import prompt_v1  # noqa: E402
+from .llm import prompt_v2 as prompt  # noqa: E402
 from .schemas import (Detection, FrameIn, FrameOut, FilteredResult, ModelInfo,  # noqa: E402
-                      RawResult, TruthIn, WindowInfo)
+                      RawResult, SpeciesTally, TruthIn, WindowInfo)
 from .store.base import DetectionRecord, FrameRecord, make_store  # noqa: E402
 
 app = FastAPI(title="animalcountllm", version="0.1.0")
@@ -110,7 +110,7 @@ def healthz():
     """
     return {"status": "ok" if not STORE_ERROR else "degraded",
             "provider": llm.provider, "model": llm.model,
-            "prompt_version": prompt_v1.PROMPT_VERSION,
+            "prompt_version": prompt.PROMPT_VERSION,
             "store": os.environ.get("STORE_BACKEND", "sqlite"),
             "store_path": STORE_DSN, "store_error": STORE_ERROR,
             "image_dir": IMAGE_DIR, "tracing": llm.tracing}
@@ -154,46 +154,47 @@ def post_frame(body: FrameIn, x_api_key: str | None = Header(default=None)):
 
     # [3] LLM — ยิงเฉพาะตอนมีก้อนขนาดสัตว์ นี่คือที่มาของการประหยัด >90%
     detections: List[Detection] = []
+    animals: List[SpeciesTally] = []
     status = "ok"
     model_info = ModelInfo(provider=llm.provider, name=llm.model,
-                           prompt_version=prompt_v1.PROMPT_VERSION)
+                           prompt_version=prompt.PROMPT_VERSION)
     vlm_ms = 0.0
 
     if cv.has_candidates:
         res = llm.classify(body.image_base64, cv.blobs, cv.frame_w, cv.frame_h, image_hash)
         vlm_ms = res.latency_ms
         rec.llm_raw_response = res.raw or (res.error or "")
-        rec.prompt_version = prompt_v1.PROMPT_VERSION
+        rec.prompt_version = prompt.PROMPT_VERSION
         rec.model_name, rec.provider = llm.model, llm.provider
         rec.finish_reason, rec.completion_tokens = res.finish_reason, res.completion_tokens
         model_info.finish_reason = res.finish_reason
         model_info.completion_tokens = res.completion_tokens
 
-        by_id = {c.blob_id: c for c in res.verdict.calls} if res.verdict else {}
-        if not res.usable:
-            # LLM ล่ม/ตอบไม่จบ → ยังตอบด้วยผล CV ได้ แต่ทุกก้อนเป็น unknown
+        if res.usable and res.verdict:
+            animals = list(res.verdict.animals)
+        else:
+            # LLM ล่ม/ตอบไม่จบ → ยังบอกได้ว่ามีของร้อนกี่ก้อน แต่ระบุชนิดไม่ได้
             status = "degraded"
+            animals = [SpeciesTally(species="unknown", count=len(cv.blobs), confidence=0.0)]
 
-        for b in cv.blobs:
-            call = by_id.get(b.id)
-            sp = call.species if (call and res.usable) else "unknown"
-            sc = call.confidence if (call and res.usable) else 0.0
-            detections.append(Detection(
-                id=b.id, bbox=b.bbox, area_px=b.area_px, aspect=b.aspect,
-                species=sp, species_confidence=sc,
-                detection_confidence=b.detection_confidence,
-                overall_confidence=round(sc * b.detection_confidence, 3)))
+        detections = [Detection(id=b.id, bbox=b.bbox, area_px=b.area_px,
+                                aspect=b.aspect,
+                                detection_confidence=b.detection_confidence)
+                      for b in cv.blobs]
 
-    # ---- นับ · จำนวนมาจาก CV ไม่ใช่จาก LLM
+    # ---- สรุป: สัตว์อะไร กี่ตัว มั่นใจเท่าไร
     counts: Dict[str, int] = {}
     conf_by_species: Dict[str, float] = {}
-    for d in detections:
-        counts[d.species] = counts.get(d.species, 0) + 1
-        conf_by_species[d.species] = max(conf_by_species.get(d.species, 0.0),
-                                         d.species_confidence)
+    for a in animals:
+        counts[a.species] = counts.get(a.species, 0) + a.count
+        conf_by_species[a.species] = max(conf_by_species.get(a.species, 0.0), a.confidence)
 
-    area_total = sum(d.area_px for d in detections) or 1
-    overall = round(sum(d.overall_confidence * d.area_px for d in detections) / area_total, 3)
+    # ความมั่นใจรวม = ถ่วงน้ำหนักด้วยจำนวนตัว · คูณกับความมั่นใจของการตรวจจับฝั่ง CV
+    total = sum(counts.values())
+    det_mean = (sum(b.detection_confidence for b in cv.blobs) / len(cv.blobs)
+                if cv.blobs else 0.0)
+    overall = round(
+        (sum(a.confidence * a.count for a in animals) / total * det_mean) if total else 0.0, 3)
 
     # [4][5] corroboration + filter
     hist = store.window(body.camera_id, now, temporal.WINDOW_SECONDS)
@@ -221,14 +222,19 @@ def post_frame(body: FrameIn, x_api_key: str | None = Header(default=None)):
         rec.image_path = _save_image(raw_bytes, request_id)
 
     store.update_frame(rec)
+    # ตาราง detections เก็บชนิดที่ระดับเฟรม ผูกกับก้อนที่ใหญ่ที่สุดพอเป็นตัวแทน
+    top = max(animals, key=lambda a: a.count, default=None)
     store.insert_detections([
-        DetectionRecord(request_id, d.id, d.species, d.species_confidence,
+        DetectionRecord(request_id, d.id, top.species if top else "unknown",
+                        top.confidence if top else 0.0,
                         d.detection_confidence, d.bbox) for d in detections])
 
     return FrameOut(
         request_id=request_id, camera_id=body.camera_id, received_at=_iso(now),
         status=status,
-        raw=RawResult(detections=detections, counts=counts, overall_confidence=overall),
+        raw=RawResult(animals=animals, counts=counts,
+                      regions_detected=len(cv.blobs),
+                      detections=detections, overall_confidence=overall),
         filtered=filtered, window=window, model=model_info,
         timing_ms={"cv": cv.elapsed_ms, "vlm": vlm_ms,
                    "total": round((time.perf_counter() - t_start) * 1000, 1)},

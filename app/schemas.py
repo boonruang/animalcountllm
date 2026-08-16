@@ -67,6 +67,17 @@ class CVResult(BaseModel):
 
 
 # ---------------------------------------------------------------- LLM layer
+class SpeciesTally(BaseModel):
+    """คำตอบของ VLM ต่อหนึ่งเฟรม หนึ่งชนิด · v2 ตอบรายชนิด ไม่ใช่รายก้อน
+
+    ยาวเท่าเดิมเสมอไม่ว่าเฟรมจะรกแค่ไหน ต่างจาก v1 ที่ยาวตามจำนวนก้อน
+    """
+
+    species: Species
+    count: int = Field(..., ge=0)
+    confidence: float = Field(..., ge=0.0, le=1.0)
+
+
 class SpeciesCall(BaseModel):
     """คำตอบของ VLM ต่อก้อนหนึ่งก้อน · schema นี้บังคับผ่าน structured output"""
 
@@ -77,26 +88,32 @@ class SpeciesCall(BaseModel):
 
 
 class LLMVerdict(BaseModel):
-    calls: List[SpeciesCall]
+    animals: List[SpeciesTally] = Field(default_factory=list)
+    calls: List[SpeciesCall] = Field(default_factory=list)   # v1 เก่า ยังไม่ลบ
     merged_blob_ids: List[List[int]] = Field(default_factory=list)
     """ก้อนที่ CV แบ่งผิด LLM บอกว่าจริงๆ เป็นตัวเดียวกัน เช่น [[2,3]]"""
 
 
 # ---------------------------------------------------------------- response
 class Detection(BaseModel):
+    """ก้อนร้อนหนึ่งก้อน · v2 เป็นข้อมูลตำแหน่งล้วน ไม่มีชนิดรายก้อน
+
+    ชนิดสัตว์ย้ายไปอยู่ระดับเฟรมที่ RawResult.animals ตามที่ Toy ขอ
+    (สัตว์อะไร กี่ตัว มั่นใจเท่าไร) เพราะรายก้อนทั้งยาวและตอบไม่ได้จริงอยู่แล้ว
+    """
+
     id: int
     bbox: List[int]
     area_px: int
     aspect: float
-    species: Species
-    species_confidence: float  # จาก LLM · ไม่ได้ calibrate ห้ามคิดเป็นความน่าจะเป็นจริง
-    detection_confidence: float  # จาก CV · วัดได้
-    overall_confidence: float  # detection × species
+    detection_confidence: float  # จาก CV · วัดได้ อธิบายได้
 
 
 class RawResult(BaseModel):
-    detections: List[Detection]
-    counts: Dict[str, int]
+    animals: List[SpeciesTally]        # ← คำตอบหลัก: สัตว์อะไร กี่ตัว มั่นใจเท่าไร
+    counts: Dict[str, int]             # รูปแบบ dict ของอันบน อ่านง่ายฝั่งโปรแกรม
+    regions_detected: int              # จำนวนก้อนร้อนที่ CV วัดได้ ใช้ตรวจสอบย้อนหลัง
+    detections: List[Detection]        # ตำแหน่งของแต่ละก้อน
     overall_confidence: float
 
 

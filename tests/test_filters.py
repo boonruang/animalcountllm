@@ -104,6 +104,38 @@ def test_low_confidence_confirmed_by_next_frame():
     assert f.confidence > 0.55, "รวมสองเฟรมแล้วต้องมั่นใจขึ้นเล็กน้อย"
 
 
+def test_conflicting_frames_report_unstable():
+    """เฟรมนี้บอกช้าง เฟรมที่แล้วบอกวัว · ห้ามเลือกให้ ต้องบอกว่ามันขัดกัน
+
+    สถานะนี้เคยอยู่ใน schema และในเอกสารตั้งแต่แรก **แต่โค้ดไม่เคยสร้างมันเลย**
+    เจอตอน Toy ถามว่า state มีค่าอะไรบ้าง (2026-08-16) ถ้าไม่เจอ
+    ทีมปลายทางจะเขียนโค้ดรอรับค่าที่ไม่มีวันมา
+    """
+    h = [HistoryItem(ts=T0 + i * 10, counts={"cattle": 2}, confidence={"cattle": 0.7})
+         for i in range(5)]
+    f, _ = decide({"elephant": 2}, {"elephant": 0.8}, h, T0 + 50)
+    assert f.state == "unstable", f"ต้องเป็น unstable ได้ {f.state}"
+    assert f.accepted is False
+    assert "elephant" in f.reason and "cattle" in f.reason, \
+        "reason ต้องบอกทั้งสองคำตอบ ปลายทางจะได้ตัดสินเอง"
+
+
+def test_same_species_is_not_a_conflict():
+    """ชนิดเดิมแต่จำนวนต่าง ไม่ใช่ความขัดแย้ง ปล่อยให้ Hampel จัดการตามปกติ"""
+    h = [HistoryItem(ts=T0 + i * 10, counts={"elephant": 2}, confidence={"elephant": 0.7})
+         for i in range(5)]
+    f, _ = decide({"elephant": 3}, {"elephant": 0.8}, h, T0 + 50)
+    assert f.state != "unstable"
+
+
+def test_unknown_is_not_a_conflict():
+    """unknown ไม่ถือว่าขัดกับชนิดใด มันแปลว่า 'ดูไม่ออก' ไม่ใช่ 'เป็นอย่างอื่น'"""
+    h = [HistoryItem(ts=T0 + i * 10, counts={"unknown": 2}, confidence={"unknown": 0.9})
+         for i in range(5)]
+    f, _ = decide({"elephant": 2}, {"elephant": 0.8}, h, T0 + 50)
+    assert f.state != "unstable"
+
+
 def test_unknown_never_waits_for_the_next_frame():
     """🔴 regression · "ดูไม่ออก" คือคำตอบที่จบแล้ว ไม่ใช่คำตอบชั่วคราว
 

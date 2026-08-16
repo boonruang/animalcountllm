@@ -132,6 +132,29 @@ def decide(
             info,
         )
 
+    # ---- เฟรมติดกันเห็นคนละชนิด: ไม่เลือกให้ ส่งไปทั้งสองคำตอบ
+    #
+    # เฟรมนี้บอกช้าง เฟรมที่แล้วบอกวัว ทั้งที่ห่างกัน 10 วิ อย่างน้อยหนึ่งคำตอบผิดแน่ๆ
+    # แต่เราไม่รู้ว่าอันไหน · เลือกให้แล้วเลือกผิด แย่กว่าบอกตรงๆ ว่ามันขัดกันอยู่
+    # ปลายทางเห็น unstable แล้วตัดสินใจเองได้ว่าจะเชื่ออันไหนหรือจะรอ
+    prev = win[-1]
+    cur_named = {s for s, c in raw_counts.items() if c > 0 and s != "unknown"}
+    prev_named = {s for s, c in prev.counts.items() if c > 0 and s != "unknown"}
+    if cur_named and prev_named and cur_named.isdisjoint(prev_named):
+        return (
+            FilteredResult(
+                counts=dict(raw_counts),
+                confidence=round(max(raw_conf.values(), default=0.0), 3),
+                method="disagreement",
+                accepted=False,
+                reason=(f"this frame says {'/'.join(sorted(cur_named))}, "
+                        f"previous frame said {'/'.join(sorted(prev_named))}"),
+                state="unstable",
+                corroborated_frames=1,
+            ),
+            info,
+        )
+
     # ---- confidence ต่ำ: รอเฟรมถัดไปยืนยัน แต่ตอบกลับทันที ไม่ค้าง HTTP request
     # 🔴 unknown ไม่เข้าเงื่อนไขรอเฟรมถัดไป · วัดเจอ 2026-08-16
     #

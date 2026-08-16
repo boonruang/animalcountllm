@@ -75,6 +75,30 @@ def check_no_secrets() -> None:
     ok("ไม่มีคีย์จริงในไฟล์ที่ track")
 
 
+def check_version_bumped() -> None:
+    """APP_VERSION ต้องขยับเมื่อโค้ดใน app/ เปลี่ยน
+
+    ไม่มีตัวนี้ = ไม่มีทางรู้ว่า DO รันคอมมิตไหนอยู่ ซึ่งเสียเวลาไปแล้วสามรอบ
+    """
+    changed = run("diff", "--name-only", "origin/main..dev").splitlines()
+    if not any(f.startswith("app/") for f in changed):
+        return
+    cur = run("show", "HEAD:app/main.py")
+    try:
+        old = run("show", "origin/main:app/main.py", check=False)
+    except SystemExit:
+        return
+
+    def ver(text: str) -> str:
+        m = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', text)
+        return m.group(1) if m else ""
+
+    if old and ver(cur) and ver(cur) == ver(old):
+        fail(f"โค้ดใน app/ เปลี่ยนแต่ APP_VERSION ยังเป็น {ver(cur)} "
+             f"· ขยับก่อน ไม่งั้นดูไม่ออกว่า deploy ทันหรือยัง")
+    ok(f"APP_VERSION = {ver(cur)}")
+
+
 def check_tests() -> None:
     for t in ("tests/test_cv.py", "tests/test_filters.py"):
         r = subprocess.run([sys.executable, t], capture_output=True, text=True,
@@ -110,6 +134,7 @@ def main() -> None:
     check_env_not_tracked()
     check_no_secrets()
     check_tests()
+    check_version_bumped()
     _, ahead = check_branches()
 
     print(f"\nสิ่งที่จะ deploy ({ahead} commit):")

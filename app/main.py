@@ -30,7 +30,13 @@ from .schemas import (Detection, FrameIn, FrameOut, FilteredResult, ModelInfo,  
                       RawResult, SpeciesTally, TruthIn, WindowInfo)
 from .store.base import DetectionRecord, FrameRecord, make_store  # noqa: E402
 
-app = FastAPI(title="animalcountllm", version="0.1.0")
+# 🔴 เลขนี้ต้องขยับทุกครั้งที่แก้พฤติกรรมของ API
+# วันนี้ (16 ส.ค.) เดากันสามรอบว่า DO รันโค้ดคอมมิตไหนอยู่ เพราะไม่มีอะไรบอก
+# /healthz จะรายงานค่านี้ ดูปุ๊บรู้เลยว่า deploy ทันหรือยัง
+APP_VERSION = "0.3.0"
+BUILD_NOTES = "v2 prompt (per-species) + unstable state + api key"
+
+app = FastAPI(title="animalcountllm", version=APP_VERSION)
 
 
 def _writable(preferred: str, fallback: str, is_dir: bool = False) -> str:
@@ -109,6 +115,7 @@ def healthz():
     ซึ่งบอกไม่ได้ว่าพังเพราะอะไร เสียเวลาไล่ผิดที่
     """
     return {"status": "ok" if not STORE_ERROR else "degraded",
+            "version": APP_VERSION, "build": BUILD_NOTES,
             "provider": llm.provider, "model": llm.model,
             "prompt_version": prompt.PROMPT_VERSION,
             "store": os.environ.get("STORE_BACKEND", "sqlite"),

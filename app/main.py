@@ -167,6 +167,15 @@ def post_frame(body: FrameIn, x_api_key: str | None = Header(default=None)):
                            prompt_version=prompt.PROMPT_VERSION)
     vlm_ms = 0.0
 
+    # 🔴 ไม่เจอก้อน + ภาพหน้าตาไม่เหมือน thermal = **บอกออกไป ห้ามเงียบ**
+    # เพิ่ม 2026-08-16 หลังยิงภาพถ่ายช้าง RGB เข้าไปแล้วได้ 200 OK counts ว่าง
+    # หน้าตาเหมือนเฟรมที่ไม่มีอะไรจริงๆ ทุกประการ ปลายทางแยกไม่ออกเลย
+    # ยังไม่ยิง LLM เหมือนเดิม (ไม่มีก้อน = ไม่มีอะไรให้ถาม และ prompt เขียนไว้ว่า
+    # "Bright regions are warm" ซึ่งไม่จริงกับภาพแบบนี้ ถามไปก็ได้คำตอบที่ตั้งบนคำโกหก)
+    # ต่างกันแค่ **ตอบตรงๆ ว่าอ่านไม่เป็น** ไม่ใช่ตอบว่าไม่มีสัตว์
+    if not cv.looks_thermal:
+        status = "degraded"
+
     if cv.has_candidates:
         res = llm.classify(body.image_base64, cv.blobs, cv.frame_w, cv.frame_h, image_hash)
         vlm_ms = res.latency_ms
@@ -215,6 +224,11 @@ def post_frame(body: FrameIn, x_api_key: str | None = Header(default=None)):
     # สองอย่างนี้ต้องแก้คนละวิธี ห้ามกลบกัน
     if status == "ok" and not filtered.accepted and filtered.state == "unconfirmed":
         status = "provisional"
+
+    # เหตุผลที่สงสัยว่าไม่ใช่ภาพ thermal ต้องไปถึงปลายทางและลง log ไม่ใช่รู้อยู่คนเดียว
+    # ต่อท้าย ไม่ทับ ของเดิมที่ filter บอกไว้ยังมีค่าอยู่
+    if cv.plausibility_reason:
+        filtered.reason = f"{filtered.reason} | cv: {cv.plausibility_reason}".lstrip(" |")
 
     # [6] บันทึกผล
     rec.status = status

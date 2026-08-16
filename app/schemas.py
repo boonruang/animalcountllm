@@ -60,6 +60,11 @@ class CVResult(BaseModel):
     threshold_used: float
     elapsed_ms: float
 
+    # ค่าเริ่มต้นเป็น "ปกติ" เพื่อไม่ให้ CVResult ที่สร้างจากที่อื่น (เทสต์เก่า) พัง
+    frame_mad: float = 0.0            # ค่ากระจายของพิกเซล ใช้ดูว่าเหมือนภาพ thermal ไหม
+    looks_thermal: bool = True        # False = อ่านภาพแบบนี้ไม่เป็น ไม่ใช่ไม่มีสัตว์
+    plausibility_reason: str = ""     # ทำไมถึงสงสัย พร้อมตัวเลขที่ทำให้สงสัย
+
     @property
     def has_candidates(self) -> bool:
         """ไม่มีก้อนขนาดสัตว์เลย = ไม่ต้องจ่ายเงินถาม LLM"""

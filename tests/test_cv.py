@@ -170,6 +170,100 @@ def test_faint_blob_gets_lower_confidence():
     assert faint.detection_confidence < strong.detection_confidence
 
 
+# ---------------------------------------------------------------- ภาพผิดชนิด
+# 🔴 กลุ่มนี้เพิ่ม 2026-08-16 หลังยิงภาพถ่ายช้าง RGB เข้าไปแล้วได้ "0 ตัว" กลับมาเงียบๆ
+# ระบบเตือนช้างที่ตอบว่าไม่มีช้าง ทั้งที่มีช้างสองตัวเต็มเฟรม คือความล้มเหลวที่แย่ที่สุด
+# ที่มันมีได้ และแย่กว่านั้นคือ **ไม่มี error ให้ใครเห็น**
+
+def make_daylight_photo(size=(320, 256)):
+    """ภาพถ่ายกลางวันจำลอง: ฟ้าสว่างด้านบน ทุ่งกลาง วัตถุมืดด้านหน้า
+
+    ประเด็นทั้งหมดอยู่ตรงที่ **วัตถุมืดกว่าพื้นหลัง** ซึ่งกลับด้านกับสมมติฐานของทั้งท่อ
+    (ร้อน = สว่าง) ไม่ได้พยายามให้เหมือนรูปถ่ายจริง แค่ให้สถิติเป็นแบบเดียวกัน
+    """
+    w, h = size
+    a = np.zeros((h, w), np.float32)
+    a[: h // 3] = 200.0        # ท้องฟ้ากับก้อนเมฆ สว่างสุดในเฟรม
+    a[h // 3 : 2 * h // 3] = 120.0
+    a[2 * h // 3 :] = 90.0
+    im = Image.fromarray(a.astype(np.uint8))
+    d = ImageDraw.Draw(im)
+    d.ellipse([w // 4, h // 4, w // 4 + 90, h // 4 + 110], fill=45)   # ช้าง มืด
+    buf = io.BytesIO()
+    im.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_daylight_photo_is_flagged_not_silently_empty():
+    """ภาพถ่ายทั่วไปต้องถูกตีธง ไม่ใช่ตอบ "ไม่เจอสัตว์" เฉยๆ
+
+    ก่อนแก้: blobs=0 · looks_thermal ไม่มีอยู่ · ปลายทางแยกไม่ออกจากเฟรมว่างจริง
+    """
+    r = thermal.analyze(make_daylight_photo())
+    assert r.looks_thermal is False, \
+        f"ภาพถ่ายกลางวันต้องถูกตีธง (mad={r.frame_mad} thr={r.threshold_used})"
+    assert r.plausibility_reason, "ตีธงแล้วต้องบอกเหตุผลพร้อมตัวเลขด้วย"
+    assert f"mad={r.frame_mad:.3f}" in r.plausibility_reason, \
+        f"เหตุผลต้องมีตัวเลขที่วัดได้ ไม่ใช่ข้อความลอยๆ: {r.plausibility_reason}"
+
+
+def test_real_rgb_elephant_photo_is_flagged():
+    """ภาพจริงที่ Toy ส่งมาทดสอบ 2026-08-16 · ช้างสองตัวเต็มเฟรม ตอบ 0 ตัว
+
+    ข้ามเทสต์ถ้าไม่มีไฟล์ เพื่อให้ชุดเทสต์ยังรันได้บนเครื่องที่ clone repo เปล่าๆ
+    """
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "1786846183763.jpg")
+    if not os.path.exists(p):
+        return
+    r = thermal.analyze(open(p, "rb").read())
+    assert r.blobs == [], "ภาพนี้ท่อ thermal หาก้อนไม่เจอ นั่นคือข้อเท็จจริงที่ยอมรับ"
+    assert r.looks_thermal is False, "แต่ต้องบอกว่าอ่านไม่เป็น ไม่ใช่บอกว่าไม่มีสัตว์"
+
+
+def test_normal_thermal_frames_are_never_flagged():
+    """🔴 ด้านกลับ · ธงนี้ห้ามไปโดนเฟรมปกติเข้า
+
+    ธงเตือนที่ดังผิด แย่กว่าไม่มีธง เพราะปลายทางจะเรียนรู้ที่จะเมินมัน
+    ครอบทุกเฟรมที่เทสต์อื่นในไฟล์นี้ใช้ ทั้งที่เจอก้อนและไม่เจอ
+    """
+    frames = {
+        "เฟรมว่างมี noise": make_frame([]),
+        "เฟรมแบนสนิท": make_frame([], noise=0),
+        "สามตัว": make_frame([(120, 150, 26, 18, 220), (330, 240, 30, 20, 230),
+                              (500, 380, 24, 16, 215)]),
+        "ตัวเล็กบนพื้นเรียบ": make_frame([(320, 256, 8, 6, 235)], noise=0),
+        "แดดส่องพื้นครึ่งเฟรม": make_frame([(320, 500, 900, 300, 220)]),
+        "ก้อนใหญ่เกินเกณฑ์": make_frame([(320, 256, 300, 200, 230)]),
+        "16-bit": make_frame([(150, 150, 26, 18, 220)], depth=16),
+        "จางกับชัดในเฟรมเดียว": make_frame([(180, 200, 28, 20, 250),
+                                            (460, 320, 28, 20, 110)], bg=60),
+    }
+    for name, f in frames.items():
+        r = thermal.analyze(f)
+        assert r.looks_thermal is True, \
+            f"'{name}' ไม่ควรโดนธง: mad={r.frame_mad} thr={r.threshold_used} — {r.plausibility_reason}"
+
+
+def test_flag_never_fires_when_blobs_were_found():
+    """เจอก้อนแล้ว = ท่อทำงานได้กับภาพใบนี้จริง ห้ามเดาทับว่ามันไม่ควรทำงาน
+
+    นี่คือสิ่งที่กันไม่ให้ธงนี้กลายเป็นช่องโหว่ใหม่ที่โยนเฟรมถูกต้องทิ้ง
+    ต่อให้สถิติหน้าตาแปลกแค่ไหน ถ้านับได้ก็คือนับได้
+    """
+    assert thermal.plausibility(1, mad=0.9, thr=5.0) == (True, "")
+    assert thermal.plausibility(0, mad=0.9, thr=0.5)[0] is False
+
+
+def test_high_threshold_alone_is_not_evidence():
+    """🔴 regression · เคยตีธงเมื่อ thr > 1.0 แล้วเทสต์ข้างบนตีตก
+
+    เฟรม thermal จริงที่แดดส่องพื้นครึ่งล่างได้ thr=1.037 พร้อม mad=0.009
+    ซึ่งคือเฟรมปกติที่ควรตอบ "ไม่มีสัตว์" ไม่ใช่เฟรมที่อ่านไม่เป็น
+    เกณฑ์เหลือ MAD อย่างเดียว thr เป็นแค่ข้อมูลประกอบในข้อความ
+    """
+    assert thermal.plausibility(0, mad=0.01, thr=1.5)[0] is True
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

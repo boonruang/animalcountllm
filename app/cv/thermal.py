@@ -39,6 +39,21 @@ MIN_CONTRAST = 0.08       # ต่างจากพื้นหลังน้�
 SIGMA_K = 2.5             # threshold = พื้นหลัง + k × ส่วนเบี่ยงเบน
 SMOOTH_SIGMA = 1.0        # กัน noise เกลือพริกไทยของเซ็นเซอร์ thermal
 
+# 🔴 เพดาน MAD ที่ยังเชื่อว่าเป็นภาพความร้อน ตั้งจากที่วัดได้ 2026-08-16
+#
+# ทั้งท่อนี้ตั้งอยู่บนสมมติฐานเดียว: **ร้อน = สว่างกว่าพื้นหลัง** ยิงภาพถ่าย RGB กลางแจ้ง
+# เข้ามาจะพังทั้งเส้น เพราะช้างในแสงกลางวัน **มืดกว่า**ท้องฟ้า และ MAD ที่โตขึ้นสิบเท่า
+# จะดัน threshold ทะลุ 1.0 จน mask ว่างเปล่าโดยไม่มีอะไรผิดพลาดให้เห็น
+# วัดกับภาพช้าง RGB จริง: mad=0.244 thr=1.31 → ตอบ 0 ตัวทั้งที่มีช้างเต็มเฟรม
+#
+# ภาพสังเคราะห์แบบ thermal ทุกใบใน tests/ วัดได้ 0.000-0.041 ห่างจาก 0.244 อยู่หกเท่า
+# 0.15 เลยอยู่กลางช่องว่างนั้น **เป็นค่าที่วัดมา ไม่ใช่ค่าที่เดา**
+#
+# ⚠️ นี่คือ "ธงเตือน" ไม่ใช่ "ตัวปฏิเสธ" ดู plausibility() ว่าทำไมถึงเตือนเฉพาะตอนไม่เจอก้อน
+# ⚠️ ต้องวัดใหม่กับภาพจากไซต์จริง ฉากพลบค่ำที่ฟ้าเย็นจัดครึ่งเฟรม พื้นอุ่นครึ่งเฟรม
+#    ก็ทำให้ MAD โตได้เหมือนกัน ยังไม่มีตัวอย่างมาวัด
+MAX_THERMAL_MAD = float(os.environ.get("CV_MAX_THERMAL_MAD", "0.15"))
+
 
 def load_image(raw: bytes) -> Tuple[np.ndarray, int]:
     """อ่านภาพเป็น grayscale float 0-1 พร้อมบอก bit depth เดิม
@@ -87,7 +102,7 @@ def normalize(a: np.ndarray) -> np.ndarray:
     return np.clip((a - lo) / (hi - lo), 0.0, 1.0)
 
 
-def segment(a: np.ndarray) -> Tuple[np.ndarray, float, float]:
+def segment(a: np.ndarray) -> Tuple[np.ndarray, float, float, float]:
     """แยกพิกเซลที่ร้อนกว่าพื้นหลัง
 
     สัตว์เลือดอุ่นสว่างกว่าพื้นดินเสมอ นี่คือข้อได้เปรียบทั้งหมดของกล้องความร้อน
@@ -103,7 +118,8 @@ def segment(a: np.ndarray) -> Tuple[np.ndarray, float, float]:
     # แล้วรัศมีเบลอรอบจุดเล็กๆ (นก แมลง พิกเซลเสีย) จะถูกนับเป็นก้อนใหญ่
     # พิกเซลต้องสว่างกว่าพื้นหลังอย่างน้อย MIN_CONTRAST ถึงจะนับ ใช้เกณฑ์เดียวกับตอนคัดก้อน
     thr = max(thr, bg + MIN_CONTRAST)
-    return (sm > thr), bg, thr
+    # คืน mad ดิบออกไปด้วย ใช้ตรวจว่าภาพหน้าตาเหมือน thermal ไหม (ดู plausibility)
+    return (sm > thr), bg, thr, mad
 
 
 def measure(mask: np.ndarray, a: np.ndarray, bg: float) -> List[Blob]:
@@ -173,13 +189,44 @@ def score(area: int, contrast: float, touches_edge: bool, fill: float) -> float:
     return round(float(np.clip(v, 0.0, 1.0)), 3)
 
 
+def plausibility(n_blobs: int, mad: float, thr: float) -> Tuple[bool, str]:
+    """"ภาพนี้หน้าตาเหมือนภาพความร้อนไหม" ตอบจากตัวเลขที่วัดได้ ไม่ใช่จากนามสกุลไฟล์
+
+    🔴 **เตือนเฉพาะตอนไม่เจอก้อนเลย** ตั้งใจให้เป็นแบบนั้น
+    ถ้าเจอก้อนแล้ว แปลว่าท่อทำงานได้กับภาพใบนี้จริง ไม่ต้องมาเดาทับว่ามันควรทำงานไหม
+    ประกาศ degraded ทั้งที่นับได้ = เปิดช่องให้เฟรมที่ถูกต้องถูกโยนทิ้งเพราะสถิติดูแปลก
+    ซึ่งอันตรายกว่าปัญหาที่กำลังจะแก้
+
+    ผลคือกฎนี้แยกสองอย่างที่เดิมหน้าตาเหมือนกันเป๊ะออกจากกัน:
+      "ไม่เจอเพราะไม่มีอะไรในเฟรม"  → ok      (กรณีส่วนใหญ่ 90%+ ของกล้องจริง)
+      "ไม่เจอเพราะอ่านภาพแบบนี้ไม่เป็น" → degraded พร้อมบอกเลขที่ทำให้สงสัย
+    """
+    if n_blobs > 0:
+        return True, ""
+    if mad > MAX_THERMAL_MAD:
+        # ข้อความเป็น English ให้ตรงกับ reason อื่นๆ ที่ปลายทางเห็นอยู่แล้ว
+        # ("cold start, window empty", "within 3.0 MAD of window median")
+        return False, (f"frame does not look thermal: pixel spread mad={mad:.3f} "
+                       f"> {MAX_THERMAL_MAD} (computed threshold {thr:.3f}); "
+                       f"likely an ordinary photo, not an infrared frame")
+    return True, ""
+
+# 🔴 เคยเขียนเงื่อนไขที่สองไว้ว่า thr > 1.0 = อ่านไม่เป็น เหตุผลฟังขึ้น:
+# normalize() คืนค่า 0-1 เสมอ threshold เกิน 1.0 แปลว่า mask ว่างแน่นอนทางคณิตศาสตร์
+# **แต่เทสต์ตีตก** เฟรม thermal จริงที่แดดส่องพื้นครึ่งล่างได้ thr=1.037 mad=0.009
+# นั่นคือเฟรมปกติที่ควรตอบ "ไม่มีสัตว์" เฉยๆ ไม่ใช่เฟรมที่อ่านไม่เป็น
+# ธงที่ดังผิดแย่กว่าไม่มีธง เพราะปลายทางจะเรียนรู้ที่จะเมินมัน ตัดทิ้ง เหลือ MAD อย่างเดียว
+# ซึ่งแยกได้จริง: thermal 0.000-0.041 · ภาพถ่าย RGB 0.244 · ค่า thr ยังติดไปในข้อความให้ debug
+
+
 def analyze(raw: bytes) -> CVResult:
     """ทางเข้าเดียวของชั้นนี้ · รันภาพเดิมกี่ครั้งก็ได้ผลเดิมเป๊ะ"""
     t0 = time.perf_counter()
     a, depth = load_image(raw)
     norm = normalize(a)
-    mask, bg, thr = segment(norm)
+    mask, bg, thr, mad = segment(norm)
     blobs = measure(mask, norm, bg)
+    looks_thermal, why = plausibility(len(blobs), mad, thr)
     return CVResult(
         blobs=blobs,
         frame_w=int(a.shape[1]),
@@ -187,5 +234,8 @@ def analyze(raw: bytes) -> CVResult:
         bit_depth=depth,
         background_level=round(bg, 4),
         threshold_used=round(thr, 4),
+        frame_mad=round(mad, 4),
+        looks_thermal=looks_thermal,
+        plausibility_reason=why,
         elapsed_ms=round((time.perf_counter() - t0) * 1000, 2),
     )

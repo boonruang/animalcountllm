@@ -33,8 +33,8 @@ from .store.base import DetectionRecord, FrameRecord, make_store  # noqa: E402
 # 🔴 เลขนี้ต้องขยับทุกครั้งที่แก้พฤติกรรมของ API
 # วันนี้ (16 ส.ค.) เดากันสามรอบว่า DO รันโค้ดคอมมิตไหนอยู่ เพราะไม่มีอะไรบอก
 # /healthz จะรายงานค่านี้ ดูปุ๊บรู้เลยว่า deploy ทันหรือยัง
-APP_VERSION = "0.3.0"
-BUILD_NOTES = "v2 prompt (per-species) + unstable state + api key"
+APP_VERSION = "0.4.0"
+BUILD_NOTES = "prod VLM = qwen3-vl-30b-a3b-instruct (was qwen3.7-flash)"
 
 app = FastAPI(title="animalcountllm", version=APP_VERSION)
 

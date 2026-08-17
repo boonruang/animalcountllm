@@ -56,6 +56,30 @@ app ฝั่งกล้อง → POST /v1/frames  {camera_id, ts, image_base6
 
 ---
 
+## `ui/` — หน้าเว็บทดสอบ · แยกจาก API เด็ดขาด
+
+`ui/index.html` ไฟล์เดียว ไม่มี build step ไม่มี dependency ไม่มี framework
+**โค้ดใน `app/` ไม่รู้จักมันเลย และห้ามรู้จัก** ไม่มี mount ไม่มี StaticFiles
+ไม่มี CORS middleware · ถ้าวันไหนหน้าเว็บต้องการให้ API เปลี่ยน คำตอบคือแก้หน้าเว็บ
+
+มันเป็นแค่ client ธรรมดาตัวหนึ่งที่ยิง `POST /v1/frames` เหมือน Postman
+ผ่าน `_auth` เดิมทุกประการ ช่อง X-API-Key อยู่บนหน้า ไม่มีค่า default ไม่จำ
+
+| | เสิร์ฟจากไหน |
+|---|---|
+| prod | คอมโพเนนต์ `static_sites: verify-ui` ใน `.do/app.yaml` ที่ path `/verify` |
+| dev | `python ui/serve.py` แล้วเปิด `http://127.0.0.1:3000` |
+
+🔴 **ทั้งสองทางต้องเป็น origin เดียวกับ API** เพราะ `app/main.py` ไม่มี CORS middleware
+บน DO คือ app เดียวกัน คนละ route · ตอน dev `ui/serve.py` proxy `/v1/*` กับ `/healthz`
+ไปที่ `127.0.0.1:8080` ให้ **เปิด `ui/index.html` จาก `file://` ตรงๆ ใช้ไม่ได้**
+เบราว์เซอร์บล็อก fetch ทิ้งเงียบๆ ทั้งที่ API ตอบ 200 ปกติ ไล่บั๊กเสียเวลาเปล่า
+
+ภาพอยู่ในหน่วยความจำแท็บเท่านั้น ไม่มี localStorage · base64 ถูกทิ้งหลังยิงเสร็จ
+ฝั่งเซิร์ฟเวอร์ยังเก็บภาพตาม env `SAVE_IMAGES` เหมือนเดิม (`none` = ไม่เก็บเลย)
+
+---
+
 ## response
 
 ```json

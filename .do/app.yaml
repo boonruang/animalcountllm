@@ -10,6 +10,21 @@
 name: animalcountllm
 region: sgp
 
+# หน้าเว็บทดสอบ · static ล้วน ไม่มี build ไม่มี runtime
+# 🔴 ต้องอยู่ใน app เดียวกับ service api เพราะ app/main.py ไม่มี CORS middleware
+# และเราไม่แตะโค้ด API · โดเมนเดียวกัน = same origin = fetch ไป /v1/frames ผ่าน
+# แยกไปเป็น app/โดเมนอื่นเมื่อไร หน้าเว็บจะยิงไม่ออกทันที โดยที่ API ยังตอบ 200 ปกติ
+static_sites:
+  - name: verify-ui
+    github:
+      repo: boonruang/animalcountllm
+      branch: main
+      deploy_on_push: true
+    source_dir: ui
+    index_document: index.html
+    routes:
+      - path: /verify
+
 services:
   - name: api
     github:
@@ -22,6 +37,11 @@ services:
     instance_size_slug: basic-xxs
     instance_count: 1
     http_port: 8080
+
+    # เขียน route ของ service ให้ชัด เพราะมีคอมโพเนนต์ที่สองแล้ว
+    # ปล่อยให้ implicit ปนกับ explicit คือที่ที่ routing จะเพี้ยนแบบหาสาเหตุยาก
+    routes:
+      - path: /
 
     run_command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 1
 

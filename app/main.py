@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import io
 import json
 import os
 import time
@@ -26,6 +27,7 @@ from .cv import thermal  # noqa: E402
 from .filters import temporal  # noqa: E402
 from .llm.client import VisionLLM  # noqa: E402
 from .llm import prompt_v2 as prompt  # noqa: E402
+from .llm import prompt_v3  # noqa: E402
 from .schemas import (Detection, FrameIn, FrameOut, FilteredResult, ModelInfo,  # noqa: E402
                       RawResult, SpeciesTally, TruthIn, WindowInfo)
 from .store.base import DetectionRecord, FrameRecord, make_store  # noqa: E402
@@ -33,8 +35,30 @@ from .store.base import DetectionRecord, FrameRecord, make_store  # noqa: E402
 # 🔴 เลขนี้ต้องขยับทุกครั้งที่แก้พฤติกรรมของ API
 # วันนี้ (16 ส.ค.) เดากันสามรอบว่า DO รันโค้ดคอมมิตไหนอยู่ เพราะไม่มีอะไรบอก
 # /healthz จะรายงานค่านี้ ดูปุ๊บรู้เลยว่า deploy ทันหรือยัง
-APP_VERSION = "0.4.0"
-BUILD_NOTES = "prod VLM = qwen3-vl-30b-a3b-instruct (was qwen3.7-flash)"
+# 🔴 โหมดของท่อ · ตัดสินโดย Toy 2026-08-17
+#
+# "api เส้นของเรา วางตำแหน่งไว้ว่าคือ llm ครับ ไม่ต้องใช้ numpy"
+#
+# llm      = ถามโมเดลตรงๆ ทุกเฟรม ไม่มีชั้น CV · รับได้ทั้ง thermal และภาพสี
+#            ซึ่งเป็นสิ่งที่ไซต์จะส่งมาจริง จากกล้องหลายตัว
+# cv+llm   = ท่อเดิม · CV คัดก่อนแล้วค่อยถามโมเดล · รับเฉพาะ thermal
+#
+# ⚠️ สิ่งที่แลกไปกับโหมด llm ต้องรู้ ไม่ใช่ค้นพบตอนบิลมา:
+#   1. **ทุกเฟรมยิง LLM** ด่าน CV ที่เคยคัดออก >90% ไม่มีแล้ว
+#      8,640 เฟรม/วัน/กล้อง ที่ qwen3-vl-32b ตกราว $25/เดือน/กล้อง (เดิม ~$4.7)
+#   2. **จำนวนมาจาก LLM ไม่ใช่ CV** ถามซ้ำอาจได้คนละเลข ต่างจาก connected component
+#      ที่นับได้เท่าเดิมทุกครั้ง · response ติดป้าย count_source ไว้ให้ปลายทางรู้
+#   3. **ไม่มี detections รายก้อน** bbox ของ LLM เชื่อไม่ได้ (วัดแล้ว คืน y=998
+#      บนภาพสูง 628) จึงไม่ขอมาตั้งแต่แรก · raw.detections จะว่างในโหมดนี้
+#
+# 🔴 รูปของ JSON ที่ตอบกลับ **ห้ามเปลี่ยน** confirm กับทีมคุณสุชาติไปแล้ว
+# ฟิลด์เท่าเดิมทุกตัว ชื่อเดิม ชนิดเดิม · โหมดนี้ทำให้บางฟิลด์เป็นค่าว่างได้
+# (detections = [] · regions_detected = 0) แต่ฟิลด์ยังอยู่ครบและชนิดยังถูก
+# ปลายทางแยกออกว่าจำนวนมาจากไหนด้วย model.prompt_version (v3 = โมเดลนับเอง)
+PIPELINE = os.environ.get("PIPELINE", "llm").lower()
+
+APP_VERSION = "0.5.0"
+BUILD_NOTES = "llm-first pipeline (prompt v3, no CV gate), thermal + colour"
 
 app = FastAPI(title="animalcountllm", version=APP_VERSION)
 
@@ -87,6 +111,17 @@ print(f"[startup] store={STORE_DSN} images={IMAGE_DIR} provider={llm.provider} "
       f"model={llm.model} tracing={llm.tracing}", flush=True)
 
 
+def image_size(raw: bytes) -> tuple[int, int]:
+    """ขนาดภาพจากหัวไฟล์ · ไม่ decode พิกเซล ไม่แตะ numpy
+
+    โหมด llm ต้องการขนาดไปใส่ prompt กับเก็บลง DB เท่านั้น ไม่ได้เอาไปคำนวณอะไร
+    Pillow อ่านหัวไฟล์อย่างเดียวถ้าไม่เรียก .load() เลยถูกทั้งเวลาและหน่วยความจำ
+    """
+    from PIL import Image
+    with Image.open(io.BytesIO(raw)) as im:
+        return im.size
+
+
 def _auth(key: str | None) -> None:
     if API_KEY and key != API_KEY:
         raise HTTPException(status_code=401, detail="bad or missing X-API-Key")
@@ -117,7 +152,9 @@ def healthz():
     return {"status": "ok" if not STORE_ERROR else "degraded",
             "version": APP_VERSION, "build": BUILD_NOTES,
             "provider": llm.provider, "model": llm.model,
-            "prompt_version": prompt.PROMPT_VERSION,
+            "pipeline": PIPELINE,
+            "prompt_version": (prompt_v3.PROMPT_VERSION if PIPELINE == "llm"
+                               else prompt.PROMPT_VERSION),
             "store": os.environ.get("STORE_BACKEND", "sqlite"),
             "store_path": STORE_DSN, "store_error": STORE_ERROR,
             "image_dir": IMAGE_DIR, "tracing": llm.tracing}
@@ -147,25 +184,49 @@ def post_frame(body: FrameIn, x_api_key: str | None = Header(default=None)):
                       image_hash=image_hash, status="received")
     store.insert_frame(rec)
 
-    # [2] CV — deterministic ไม่ต้องมีเน็ต
+    # [2] อ่านขนาดภาพ · โหมด llm ไม่แตะ numpy เลย ใช้หัวไฟล์อย่างเดียว
     try:
-        cv = thermal.analyze(raw_bytes)
+        cv = thermal.analyze(raw_bytes) if PIPELINE != "llm" else None
+        frame_w, frame_h = (cv.frame_w, cv.frame_h) if cv else image_size(raw_bytes)
     except Exception as e:
         rec.status = "error"
-        rec.filter_reason = f"cv failed: {type(e).__name__}"
+        rec.filter_reason = f"cannot read image: {type(e).__name__}"
         store.update_frame(rec)
         raise HTTPException(status_code=400, detail=f"cannot read image: {e}")
 
-    rec.frame_w, rec.frame_h, rec.bit_depth = cv.frame_w, cv.frame_h, cv.bit_depth
-    rec.cv_result = cv.model_dump_json()
+    rec.frame_w, rec.frame_h = frame_w, frame_h
+    if cv:
+        rec.bit_depth = cv.bit_depth
+        rec.cv_result = cv.model_dump_json()
 
     # [3] LLM — ยิงเฉพาะตอนมีก้อนขนาดสัตว์ นี่คือที่มาของการประหยัด >90%
     detections: List[Detection] = []
     animals: List[SpeciesTally] = []
     status = "ok"
     model_info = ModelInfo(provider=llm.provider, name=llm.model,
-                           prompt_version=prompt.PROMPT_VERSION)
+                           prompt_version=(prompt_v3.PROMPT_VERSION if PIPELINE == "llm"
+                                           else prompt.PROMPT_VERSION))
     vlm_ms = 0.0
+
+    if PIPELINE == "llm":
+        # ---- เส้น llm · ถามโมเดลทุกเฟรม ไม่มีอะไรมาคัดก่อน
+        # ไม่มี "ไม่ยิงเพราะไม่เจอก้อน" อีกแล้ว เพราะการไม่เจอก้อนคือสิ่งที่ทำให้
+        # ช้างเต็มเฟรมกลายเป็น {"animals":[]} มาทั้งวัน (ดู prompt_v3.py)
+        res = llm.look(body.image_base64, frame_w, frame_h, body.camera_id, image_hash)
+        vlm_ms = res.latency_ms
+        rec.llm_raw_response = res.raw or (res.error or "")
+        rec.prompt_version = prompt_v3.PROMPT_VERSION
+        rec.model_name, rec.provider = llm.model, llm.provider
+        rec.finish_reason, rec.completion_tokens = res.finish_reason, res.completion_tokens
+        model_info.finish_reason = res.finish_reason
+        model_info.completion_tokens = res.completion_tokens
+
+        if res.usable and res.verdict:
+            animals = list(res.verdict.animals)
+        else:
+            # โมเดลล่ม/ตอบไม่จบ · โหมดนี้ไม่มีผล CV สำรอง ตอบว่าไม่รู้ ไม่ใช่ตอบว่าไม่มี
+            status = "degraded"
+            animals = []
 
     # 🔴 ไม่เจอก้อน + ภาพหน้าตาไม่เหมือน thermal = **บอกออกไป ห้ามเงียบ**
     # เพิ่ม 2026-08-16 หลังยิงภาพถ่ายช้าง RGB เข้าไปแล้วได้ 200 OK counts ว่าง
@@ -173,10 +234,10 @@ def post_frame(body: FrameIn, x_api_key: str | None = Header(default=None)):
     # ยังไม่ยิง LLM เหมือนเดิม (ไม่มีก้อน = ไม่มีอะไรให้ถาม และ prompt เขียนไว้ว่า
     # "Bright regions are warm" ซึ่งไม่จริงกับภาพแบบนี้ ถามไปก็ได้คำตอบที่ตั้งบนคำโกหก)
     # ต่างกันแค่ **ตอบตรงๆ ว่าอ่านไม่เป็น** ไม่ใช่ตอบว่าไม่มีสัตว์
-    if not cv.looks_thermal:
+    if cv and not cv.looks_thermal:
         status = "degraded"
 
-    if cv.has_candidates:
+    if cv and cv.has_candidates:
         res = llm.classify(body.image_base64, cv.blobs, cv.frame_w, cv.frame_h, image_hash)
         vlm_ms = res.latency_ms
         rec.llm_raw_response = res.raw or (res.error or "")
@@ -207,8 +268,10 @@ def post_frame(body: FrameIn, x_api_key: str | None = Header(default=None)):
 
     # ความมั่นใจรวม = ถ่วงน้ำหนักด้วยจำนวนตัว · คูณกับความมั่นใจของการตรวจจับฝั่ง CV
     total = sum(counts.values())
-    det_mean = (sum(b.detection_confidence for b in cv.blobs) / len(cv.blobs)
-                if cv.blobs else 0.0)
+    # โหมด llm ไม่มีค่าฝั่ง CV มาคูณ · ความมั่นใจคือของโมเดลล้วน ซึ่งต้องบอกตรงๆ
+    # ไม่ใช่คูณ 1.0 เงียบๆ แล้วให้ปลายทางเข้าใจว่ามันผ่านการตรวจสองชั้นเหมือนเดิม
+    det_mean = 1.0 if cv is None else (
+        sum(b.detection_confidence for b in cv.blobs) / len(cv.blobs) if cv.blobs else 0.0)
     overall = round(
         (sum(a.confidence * a.count for a in animals) / total * det_mean) if total else 0.0, 3)
 
@@ -227,7 +290,7 @@ def post_frame(body: FrameIn, x_api_key: str | None = Header(default=None)):
 
     # เหตุผลที่สงสัยว่าไม่ใช่ภาพ thermal ต้องไปถึงปลายทางและลง log ไม่ใช่รู้อยู่คนเดียว
     # ต่อท้าย ไม่ทับ ของเดิมที่ filter บอกไว้ยังมีค่าอยู่
-    if cv.plausibility_reason:
+    if cv and cv.plausibility_reason:
         filtered.reason = f"{filtered.reason} | cv: {cv.plausibility_reason}".lstrip(" |")
 
     # [6] บันทึกผล
@@ -254,10 +317,10 @@ def post_frame(body: FrameIn, x_api_key: str | None = Header(default=None)):
         request_id=request_id, camera_id=body.camera_id, received_at=_iso(now),
         status=status,
         raw=RawResult(animals=animals, counts=counts,
-                      regions_detected=len(cv.blobs),
+                      regions_detected=len(cv.blobs) if cv else 0,
                       detections=detections, overall_confidence=overall),
         filtered=filtered, window=window, model=model_info,
-        timing_ms={"cv": cv.elapsed_ms, "vlm": vlm_ms,
+        timing_ms={"cv": cv.elapsed_ms if cv else 0.0, "vlm": vlm_ms,
                    "total": round((time.perf_counter() - t_start) * 1000, 1)},
     )
 

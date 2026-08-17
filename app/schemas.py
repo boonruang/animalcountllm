@@ -117,6 +117,11 @@ class Detection(BaseModel):
 class RawResult(BaseModel):
     animals: List[SpeciesTally]        # ← คำตอบหลัก: สัตว์อะไร กี่ตัว มั่นใจเท่าไร
     counts: Dict[str, int]             # รูปแบบ dict ของอันบน อ่านง่ายฝั่งโปรแกรม
+    # 🔴 เคยเพิ่ม count_source ตรงนี้ **ถอดออกแล้ว 2026-08-17**
+    # spec ของ response confirm กับทีมคุณสุชาติไปแล้ว ห้ามเปลี่ยนรูป
+    # ที่มาของจำนวน (cv หรือ vlm) ยังรู้ได้จาก model.prompt_version:
+    #   v3 = โมเดลนับเอง · v2 = CV นับ
+    # และ llm_raw_response ใน DB เก็บคำตอบดิบไว้ทั้งก้อน
     regions_detected: int              # จำนวนก้อนร้อนที่ CV วัดได้ ใช้ตรวจสอบย้อนหลัง
     detections: List[Detection]        # ตำแหน่งของแต่ละก้อน
     overall_confidence: float

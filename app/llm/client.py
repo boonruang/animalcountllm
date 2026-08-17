@@ -16,6 +16,7 @@ from typing import List, Optional, Tuple
 
 from ..schemas import Blob, LLMVerdict, SpeciesTally
 from . import prompt_v2 as prompt
+from . import prompt_v3
 
 VALID = {"elephant", "cattle", "human", "other_animal", "unknown"}
 
@@ -28,6 +29,12 @@ class LLMResult:
     completion_tokens: Optional[int]
     latency_ms: float
     error: Optional[str] = None
+    image_type: Optional[str] = None
+    """โมเดลบอกเองว่าเฟรมนี้เป็น thermal / colour / unclear (v3 เท่านั้น)
+
+    ไม่ได้เอาไป gate อะไร เก็บไว้ตรวจย้อนหลังว่าเฟรมที่พลาดเป็นภาพแบบไหน
+    เส้นนี้ไม่มี numpy แล้ว จะคำนวณเองไม่ได้
+    """
 
     @property
     def usable(self) -> bool:
@@ -83,9 +90,26 @@ class VisionLLM:
         return True if anomalous else random.random() < self.sample_rate
 
     # ---------------------------------------------------------------- call
+    def look(self, image_b64: str, w: int, h: int, camera_id: str = "unknown",
+             image_hash: str = "") -> LLMResult:
+        """เส้น v3 · ถามโมเดลตรงๆ ไม่มีชั้น CV มาบอกใบ้ก่อน
+
+        ตัดสินโดย Toy 2026-08-17: API เส้นนี้คือ LLM ไม่ใช่ CV
+        เหตุผลเต็มและตัวเลขที่วัดได้อยู่ใน prompt_v3.py
+        """
+        system, user = prompt_v3.build(w, h, camera_id)
+        return self._invoke(system, user, image_b64, image_hash,
+                            prompt_v3.PROMPT_VERSION, blobs=0, frame=f"{w}x{h}")
+
     def classify(self, image_b64: str, blobs: List[Blob], w: int, h: int,
                  image_hash: str = "") -> LLMResult:
+        """เส้น v2 · ยังอยู่เพราะโหมด cv+llm ยังเรียกได้ และเทสต์เก่ายังอ้างถึง"""
         system, user = prompt.build(blobs, w, h)
+        return self._invoke(system, user, image_b64, image_hash,
+                            prompt.PROMPT_VERSION, blobs=len(blobs), frame=f"{w}x{h}")
+
+    def _invoke(self, system: str, user: str, image_b64: str, image_hash: str,
+                prompt_version: str, blobs: int, frame: str) -> LLMResult:
         max_tokens = self.max_tokens
         t0 = time.perf_counter()
 
@@ -106,16 +130,16 @@ class VisionLLM:
                 HumanMessage(content=[
                     {"type": "text", "text": user},
                     {"type": "image_url",
-                     "image_url": {"url": f"data:image/png;base64,{image_b64}"}},
+                     "image_url": {"url": f"data:{mime_of(image_b64)};base64,{image_b64}"}},
                 ]),
             ]
             # metadata ไปที่ LangSmith · 🔴 ไม่ส่งภาพ base64 เข้า trace
             # payload จะบวมและกินโควตา storage เร็วกว่ากินโควตา trace
             # ผลพลอยได้: ภาพจากไซต์อนุรักษ์ไม่ต้องไปนอนบนเซิร์ฟเวอร์เจ้าอื่น
             resp = llm.invoke(msgs, config={
-                "metadata": {"image_hash": image_hash, "blobs": len(blobs),
-                             "frame": f"{w}x{h}", "prompt_version": prompt.PROMPT_VERSION},
-                "run_name": "classify_thermal_frame",
+                "metadata": {"image_hash": image_hash, "blobs": blobs,
+                             "frame": frame, "prompt_version": prompt_version},
+                "run_name": "classify_frame",
             })
             dt = (time.perf_counter() - t0) * 1000
             meta = resp.response_metadata or {}
@@ -123,7 +147,7 @@ class VisionLLM:
             text = resp.content if isinstance(resp.content, str) else str(resp.content)
             verdict, err = parse(text)
             return LLMResult(
-                verdict=verdict, raw=text,
+                verdict=verdict, raw=text, image_type=image_type_of(text),
                 finish_reason=meta.get("finish_reason"),
                 completion_tokens=usage.get("output_tokens"),
                 latency_ms=round(dt, 1), error=err,
@@ -133,6 +157,35 @@ class VisionLLM:
             return LLMResult(None, "", None, None,
                              round((time.perf_counter() - t0) * 1000, 1),
                              f"{type(e).__name__}: {e}")
+
+
+def mime_of(image_b64: str) -> str:
+    """เดา mime จากไบต์แรกของ base64 · เคยฝัง image/png ไว้ตายตัว
+
+    ภาพจากไซต์เป็น JPEG แต่เราประกาศว่า png ซึ่งบาง provider ยอม บางเจ้าไม่ยอม
+    ไม่ต้อง decode ทั้งก้อน หัวไม่กี่ตัวอักษรก็พอบอกได้แล้ว
+    """
+    head = (image_b64 or "")[:12]
+    if head.startswith("/9j/"):
+        return "image/jpeg"
+    if head.startswith("R0lGOD"):
+        return "image/gif"
+    if head.startswith("UklGR"):
+        return "image/webp"
+    return "image/png"
+
+
+def image_type_of(text: str) -> Optional[str]:
+    """ดึง image_type ที่โมเดลบอก · ไม่มีก็ None ไม่ใช่เรื่องผิดพลาด (v2 ไม่มีฟิลด์นี้)"""
+    m = re.search(r"\{.*\}", text or "", re.S)
+    if not m:
+        return None
+    try:
+        v = json.loads(m.group(0)).get("image_type")
+    except json.JSONDecodeError:
+        return None
+    v = str(v).lower().strip() if v is not None else None
+    return v if v in {"thermal", "colour", "color", "unclear"} else None
 
 
 def parse(text: str) -> Tuple[Optional[LLMVerdict], Optional[str]]:

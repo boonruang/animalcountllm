@@ -5,74 +5,212 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Elephant Moninting and Notification System</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
 <style>
-  body { background:#fff; }
-  #drop { border:2px dashed #ced4da; border-radius:.5rem; padding:2.5rem 1rem;
+  /* โทน AdminLTE บนพื้นขาว · ตัวเลขใหญ่อ่านจากไกลได้ ป้ายเล็กอยู่ใต้ตัวเลข */
+  body { background:#fff; color:#212529; }
+  .navbar-white { background:#fff; border-bottom:1px solid #dee2e6; }
+  .brand { font-weight:700; letter-spacing:.02em; color:#343a40; }
+
+  .small-box { border-radius:.5rem; position:relative; overflow:hidden;
+               color:#fff; padding:1rem 1.25rem; height:100%; }
+  .small-box .inner h3 { font-size:2.25rem; font-weight:700; margin:0; line-height:1.1; }
+  .small-box .inner p  { margin:.25rem 0 0; opacity:.9; font-size:.9rem; }
+  .small-box .icon { position:absolute; right:.75rem; top:.5rem;
+                     font-size:3.5rem; opacity:.25; line-height:1; }
+  .small-box .box-footer { display:block; margin:.75rem -1.25rem -1rem;
+                           padding:.4rem 1.25rem; background:rgba(0,0,0,.12);
+                           font-size:.8rem; color:#fff; }
+  .bg-info-lte    { background:#17a2b8; }
+  .bg-success-lte { background:#28a745; }
+  .bg-warning-lte { background:#ffc107; color:#1f2d3d; }
+  .bg-warning-lte .box-footer { color:#1f2d3d; }
+  .bg-danger-lte  { background:#dc3545; }
+  .bg-muted-lte   { background:#adb5bd; }
+
+  .info-box { display:flex; align-items:center; gap:.85rem; background:#fff;
+              border:1px solid #dee2e6; border-radius:.5rem; padding:.75rem 1rem; height:100%; }
+  .info-box-icon { width:44px; height:44px; flex:0 0 44px; border-radius:.4rem;
+                   display:flex; align-items:center; justify-content:center;
+                   font-size:1.3rem; color:#fff; }
+  .info-box-text { font-size:.75rem; text-transform:uppercase; letter-spacing:.03em;
+                   color:#6c757d; display:block; }
+  .info-box-number { font-weight:600; font-size:.95rem; word-break:break-all; }
+
+  .card-lte { border:1px solid #dee2e6; border-radius:.5rem; border-top:3px solid #17a2b8; }
+  .card-lte > .card-header { background:#fff; border-bottom:1px solid #dee2e6;
+                             font-weight:600; font-size:1rem; }
+
+  #drop { border:2px dashed #ced4da; border-radius:.5rem; padding:2rem 1rem;
           text-align:center; color:#6c757d; cursor:pointer; transition:.15s; }
-  #drop.over, #drop:hover { border-color:#0d6efd; background:#f8f9ff; color:#0d6efd; }
-  #preview { max-height:300px; border-radius:.5rem; }
+  #drop.over, #drop:hover { border-color:#17a2b8; background:#f2fbfd; color:#17a2b8; }
+  #preview { max-height:260px; border-radius:.5rem; }
   pre { background:#f8f9fa; border:1px solid #dee2e6; border-radius:.5rem;
-        padding:.75rem; max-height:380px; overflow:auto; font-size:.8rem; }
-  .count { font-size:2rem; font-weight:700; line-height:1; }
+        padding:.75rem; max-height:360px; overflow:auto; font-size:.78rem; }
+  .table-lte th { font-weight:500; color:#6c757d; width:38%; }
 </style>
 </head>
 <body>
-<nav class="navbar navbar-dark bg-dark">
-  <div class="container">
-    <span class="navbar-brand mb-0 h1 text-uppercase">
-      Elephant Moninting and Notification System
+
+<nav class="navbar navbar-white sticky-top">
+  <div class="container-fluid px-4">
+    <span class="navbar-brand brand mb-0 text-uppercase">
+      <i class="bi bi-broadcast-pin text-info me-2"></i>Elephant Moninting and Notification System
     </span>
+    <span class="d-none d-md-inline small text-muted" id="clock"></span>
   </div>
 </nav>
 
-<main class="container py-4" style="max-width:900px">
+<div class="container-fluid px-4 py-3" style="max-width:1320px">
 
-  <div class="card mb-3">
-    <div class="card-body">
-      <div class="row g-3">
-        <div class="col-md-7">
+  <!-- แถวตัวเลขใหญ่ · ว่างไว้ก่อนยิงภาพแรก ไม่แกล้งโชว์ 0 เหมือนมีข้อมูลแล้ว -->
+  <div class="row g-3 mb-3" id="boxes">
+    <div class="col-6 col-lg-3">
+      <div class="small-box bg-muted-lte">
+        <div class="inner"><h3 id="b-eleph">–</h3><p>ช้างที่ตรวจพบ</p></div>
+        <i class="bi bi-exclamation-triangle icon"></i>
+        <span class="box-footer" id="b-eleph-foot">ยังไม่มีข้อมูล</span>
+      </div>
+    </div>
+    <div class="col-6 col-lg-3">
+      <div class="small-box bg-muted-lte">
+        <div class="inner"><h3 id="b-other">–</h3><p>สัตว์อื่นในเฟรม</p></div>
+        <i class="bi bi-bounding-box icon"></i>
+        <span class="box-footer" id="b-other-foot">ยังไม่มีข้อมูล</span>
+      </div>
+    </div>
+    <div class="col-6 col-lg-3">
+      <div class="small-box bg-muted-lte">
+        <div class="inner"><h3 id="b-conf">–</h3><p>ความมั่นใจ</p></div>
+        <i class="bi bi-speedometer2 icon"></i>
+        <span class="box-footer" id="b-conf-foot">ยังไม่มีข้อมูล</span>
+      </div>
+    </div>
+    <div class="col-6 col-lg-3">
+      <div class="small-box bg-muted-lte">
+        <div class="inner"><h3 id="b-time">–</h3><p>เวลาที่ใช้</p></div>
+        <i class="bi bi-stopwatch icon"></i>
+        <span class="box-footer" id="b-time-foot">ยังไม่มีข้อมูล</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- แถวสถานะระบบ · มาจาก /healthz ตั้งแต่โหลดหน้า ไม่ต้องรอยิงภาพ -->
+  <div class="row g-3 mb-4">
+    <div class="col-md-6 col-lg-3">
+      <div class="info-box">
+        <div class="info-box-icon bg-secondary" id="h-icon"><i class="bi bi-hdd-network"></i></div>
+        <div><span class="info-box-text">สถานะระบบ</span>
+             <span class="info-box-number" id="h-status">กำลังเช็ค</span></div>
+      </div>
+    </div>
+    <div class="col-md-6 col-lg-3">
+      <div class="info-box">
+        <div class="info-box-icon bg-info"><i class="bi bi-cpu"></i></div>
+        <div><span class="info-box-text">โมเดล</span>
+             <span class="info-box-number" id="h-model">–</span></div>
+      </div>
+    </div>
+    <div class="col-md-6 col-lg-3">
+      <div class="info-box">
+        <div class="info-box-icon bg-success"><i class="bi bi-diagram-3"></i></div>
+        <div><span class="info-box-text">ท่อประมวลผล</span>
+             <span class="info-box-number" id="h-pipe">–</span></div>
+      </div>
+    </div>
+    <div class="col-md-6 col-lg-3">
+      <div class="info-box">
+        <div class="info-box-icon bg-warning text-dark"><i class="bi bi-collection"></i></div>
+        <div><span class="info-box-text">หน้าต่างข้อมูล 100 วินาที</span>
+             <span class="info-box-number" id="h-window">รอเฟรมแรก</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <!-- ซ้าย: ป้อนข้อมูล -->
+    <div class="col-lg-5">
+      <div class="card card-lte mb-3">
+        <div class="card-header"><i class="bi bi-shield-lock me-2"></i>การเข้าใช้งาน</div>
+        <div class="card-body">
           <label for="key" class="form-label">X-API-Key <span class="text-danger">*</span></label>
           <input id="key" type="password" class="form-control" autocomplete="off" required>
-          <div class="form-text">จำเป็นต้องใส่ ขอคีย์จาก admin</div>
+          <div class="form-text mb-3">จำเป็นต้องใส่ ขอคีย์จาก admin</div>
+
+          <label for="cam" class="form-label">Camera ID</label>
+          <input id="cam" type="text" class="form-control" value="dummycam-01">
         </div>
-        <div class="col-md-5">
-          <label for="cam" class="form-label">Camera ID <span class="text-danger">*</span></label>
-          <input id="cam" type="text" class="form-control" placeholder="dummycam-01">
-          <div class="form-text" id="health">กำลังเช็คสถานะระบบ</div>
+      </div>
+
+      <div class="card card-lte">
+        <div class="card-header"><i class="bi bi-image me-2"></i>ภาพที่ต้องการตรวจ</div>
+        <div class="card-body">
+          <div id="drop">
+            <i class="bi bi-cloud-arrow-up fs-2 d-block mb-2"></i>
+            ลากภาพมาวาง หรือคลิกเพื่อเลือกไฟล์
+          </div>
+          <input id="file" type="file" accept="image/*" hidden>
+          <div class="text-center mt-3"><img id="preview" class="img-fluid d-none" alt=""></div>
+          <div id="warn" class="alert alert-warning mt-3 mb-0 d-none py-2"></div>
+        </div>
+        <div class="card-footer bg-white border-top d-grid">
+          <button id="go" class="btn btn-info btn-lg text-white" disabled>
+            <i class="bi bi-search me-2"></i>ตรวจภาพ
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ขวา: ผลลัพธ์ -->
+    <div class="col-lg-7">
+      <div class="card card-lte">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span><i class="bi bi-clipboard-data me-2"></i>ผลการตรวจ</span>
+          <span id="hdr-badge"></span>
+        </div>
+        <div class="card-body" id="out">
+          <p class="text-muted mb-0">เลือกภาพทางซ้ายแล้วกดตรวจ ผลจะขึ้นตรงนี้</p>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="card mb-3">
-    <div class="card-body">
-      <div id="drop">ลากภาพมาวาง หรือคลิกเพื่อเลือกไฟล์</div>
-      <input id="file" type="file" accept="image/*" hidden>
-      <div class="text-center mt-3"><img id="preview" class="img-fluid d-none" alt=""></div>
-      <div class="d-grid mt-3">
-        <button id="go" class="btn btn-primary btn-lg" disabled>ตรวจภาพ</button>
-      </div>
-      <div id="warn" class="alert alert-warning mt-3 mb-0 d-none"></div>
-    </div>
-  </div>
-
-  <div id="out"></div>
-</main>
+  <p class="text-center text-muted small mt-4 mb-2" id="foot">&nbsp;</p>
+</div>
 
 <script>
 const $ = s => document.querySelector(s);
 const drop = $('#drop'), file = $('#file'), img = $('#preview'), go = $('#go'), out = $('#out');
-let b64 = null, objUrl = null;
+let b64 = null, objUrl = null, checked = 0;
 
 const LABEL = { elephant:'ช้าง', cattle:'วัว/ควาย', human:'คน',
                 other_animal:'สัตว์อื่น', unknown:'ระบุไม่ได้' };
 const BADGE = { ok:'success', provisional:'warning', degraded:'warning', error:'danger' };
+const STATE = { stable:'จำนวนนิ่ง', rising:'กำลังเพิ่มขึ้น', falling:'กำลังลดลง',
+                unstable:'เฟรมเห็นไม่ตรงกัน', unconfirmed:'รอเฟรมถัดไปยืนยัน',
+                cold_start:'เพิ่งเริ่ม ยังไม่มีประวัติ' };
 
+const clock = () => $('#clock').textContent =
+  new Date().toLocaleString('th-TH', { dateStyle:'medium', timeStyle:'medium' });
+clock(); setInterval(clock, 1000);
+
+// ---------------------------------------------------------------- health
 fetch('/healthz').then(r => r.json()).then(h => {
-  $('#health').innerHTML =
-    `ระบบ <span class="text-${h.status === 'ok' ? 'success' : 'warning'}">${esc(h.status)}</span> · ${esc(h.model)}`;
-}).catch(() => { $('#health').innerHTML = '<span class="text-danger">ระบบไม่ตอบ</span>'; });
+  const bad = h.status !== 'ok';
+  $('#h-status').innerHTML =
+    `<span class="text-${bad ? 'warning' : 'success'}">${esc(h.status)}</span>` +
+    `<span class="text-muted"> · v${esc(h.version ?? '?')}</span>`;
+  $('#h-icon').className = 'info-box-icon ' + (bad ? 'bg-warning text-dark' : 'bg-success');
+  $('#h-model').textContent = h.model ?? '–';
+  $('#h-pipe').innerHTML = `${esc(h.pipeline ?? '–')} <span class="text-muted">· prompt ${esc(h.prompt_version ?? '–')}</span>`;
+  $('#foot').innerHTML = `${esc(h.provider ?? '')} · เก็บข้อมูลด้วย ${esc(h.store ?? '')}` +
+                         (h.store_error ? ` · <span class="text-danger">${esc(h.store_error)}</span>` : '');
+}).catch(() => {
+  $('#h-status').innerHTML = '<span class="text-danger">ติดต่อระบบไม่ได้</span>';
+  $('#h-icon').className = 'info-box-icon bg-danger';
+});
 
+// ---------------------------------------------------------------- ภาพ
 drop.onclick = () => file.click();
 drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
 drop.ondragleave = () => drop.classList.remove('over');
@@ -88,7 +226,8 @@ function load(f) {
     if (objUrl) URL.revokeObjectURL(objUrl);
     objUrl = URL.createObjectURL(f);
     img.src = objUrl; img.classList.remove('d-none');
-    drop.textContent = `${f.name} · ${(f.size/1024).toFixed(0)} KB`;
+    drop.innerHTML = `<i class="bi bi-file-earmark-image fs-2 d-block mb-2"></i>` +
+                     `${esc(f.name)} · ${(f.size/1024).toFixed(0)} KB`;
     go.disabled = false;
   };
   r.readAsDataURL(f);
@@ -100,6 +239,7 @@ function warn(msg) {
   w.textContent = msg; w.classList.remove('d-none');
 }
 
+// ---------------------------------------------------------------- ยิง
 go.onclick = async () => {
   const key = $('#key').value.trim();
   const cam = $('#cam').value.trim();
@@ -110,7 +250,10 @@ go.onclick = async () => {
 
   go.disabled = true;
   go.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>กำลังตรวจ';
-  out.innerHTML = '<div class="alert alert-info">กำลังประมวลผล อาจใช้เวลาถึง 25 วินาที</div>';
+  $('#hdr-badge').innerHTML = '<span class="badge text-bg-light border">กำลังประมวลผล</span>';
+  out.innerHTML = '<div class="d-flex align-items-center gap-2 text-muted">' +
+    '<span class="spinner-border spinner-border-sm"></span>' +
+    'กำลังให้โมเดลอ่านภาพ อาจใช้เวลาถึง 25 วินาที</div>';
   try {
     const res = await fetch('/v1/frames', {
       method: 'POST',
@@ -119,60 +262,117 @@ go.onclick = async () => {
     });
     const j = await res.json();
     if (res.status === 401) {
-      out.innerHTML = '<div class="alert alert-danger mb-0">X-API-Key ไม่ถูกต้อง ตรวจกับ admin อีกครั้ง</div>';
+      fail('X-API-Key ไม่ถูกต้อง ตรวจกับ admin อีกครั้ง');
     } else if (!res.ok) {
-      out.innerHTML = `<div class="alert alert-danger mb-0">ผิดพลาด HTTP ${res.status} · ${esc(j.detail ?? '')}</div>`;
+      fail(`ผิดพลาด HTTP ${res.status} · ${j.detail ?? ''}`);
     } else {
+      checked++;
+      dashboard(j);
       render(j);
     }
   } catch (e) {
-    out.innerHTML = `<div class="alert alert-danger mb-0">ติดต่อระบบไม่ได้: ${esc(String(e))}</div>`;
+    fail('ติดต่อระบบไม่ได้: ' + e);
   } finally {
-    go.disabled = false; go.textContent = 'ตรวจภาพ';
+    go.disabled = false;
+    go.innerHTML = '<i class="bi bi-search me-2"></i>ตรวจภาพ';
     b64 = null;  // ทิ้ง base64 หลังยิงเสร็จ ไม่ค้างในหน้า
   }
 };
 
+function fail(msg) {
+  $('#hdr-badge').innerHTML = '<span class="badge text-bg-danger">ล้มเหลว</span>';
+  out.innerHTML = `<div class="alert alert-danger mb-0">${esc(msg)}</div>`;
+}
+
+// ---------------------------------------------------------------- dashboard
+function box(id, cls, value, foot) {
+  $('#' + id).textContent = value;
+  $('#' + id + '-foot').textContent = foot;
+  $('#' + id).closest('.small-box').className = 'small-box ' + cls;
+}
+
+function dashboard(j) {
+  const animals = j.raw.animals || [];
+  const eleph = animals.filter(a => a.species === 'elephant')
+                       .reduce((s, a) => s + a.count, 0);
+  const other = animals.filter(a => a.species !== 'elephant')
+                       .reduce((s, a) => s + a.count, 0);
+  const conf = j.raw.overall_confidence;
+
+  // ช้างคือเหตุผลที่ระบบนี้มีอยู่ กล่องนี้เลยแดงเมื่อเจอ ไม่ใช่เขียว
+  box('b-eleph', eleph > 0 ? 'bg-danger-lte' : 'bg-success-lte',
+      eleph, eleph > 0 ? 'ตรวจพบช้างในเฟรมนี้' : 'ไม่พบช้างในเฟรมนี้');
+
+  box('b-other', other > 0 ? 'bg-info-lte' : 'bg-muted-lte', other,
+      other > 0 ? animals.filter(a => a.species !== 'elephant' && a.count > 0)
+                         .map(a => `${LABEL[a.species] ?? a.species} ${a.count}`).join(' · ')
+                : 'ไม่พบสัตว์อื่น');
+
+  // ต่ำกว่า 0.60 คือเกณฑ์ที่ระบบเองยังไม่ยืนยัน สีต้องบอกเรื่องเดียวกัน
+  box('b-conf', conf >= 0.60 ? 'bg-success-lte' : 'bg-warning-lte',
+      (conf * 100).toFixed(0) + '%',
+      conf >= 0.60 ? 'ยืนยันแล้ว' : 'ต่ำกว่าเกณฑ์ 60% ยังไม่ยืนยัน');
+
+  const sec = j.timing_ms.total / 1000;
+  box('b-time', sec > 20 ? 'bg-warning-lte' : 'bg-info-lte',
+      sec.toFixed(1) + ' วิ', `ตรวจไปแล้ว ${checked} ภาพในรอบนี้`);
+
+  const w = j.window;
+  $('#h-window').innerHTML = `${w.frames_used}/${w.frames_expected} เฟรม ` +
+    `<span class="text-${w.complete ? 'success' : 'warning'}">` +
+    `${w.complete ? 'ครบ' : 'ยังไม่ครบ'}</span>`;
+}
+
+// ---------------------------------------------------------------- ผลละเอียด
 function render(j) {
   const animals = (j.raw.animals || []).filter(a => a.count > 0);
-  const cards = animals.length
-    ? `<div class="row g-2 mb-3">${animals.map(a => `
-        <div class="col-6 col-md-3">
-          <div class="card h-100 text-center">
-            <div class="card-body py-3">
-              <div class="count">${a.count}</div>
-              <div>${LABEL[a.species] ?? esc(a.species)}</div>
-              <div class="text-muted small">มั่นใจ ${(a.confidence*100).toFixed(0)}%</div>
+  $('#hdr-badge').innerHTML =
+    `<span class="badge text-bg-${BADGE[j.status] ?? 'secondary'}">${esc(j.status)}</span>`;
+
+  const rows = animals.length
+    ? animals.map(a => {
+        const pct = (a.confidence * 100).toFixed(0);
+        return `<tr>
+          <td><i class="bi bi-dot"></i>${LABEL[a.species] ?? esc(a.species)}</td>
+          <td class="fw-bold">${a.count}</td>
+          <td style="width:45%">
+            <div class="progress" style="height:16px">
+              <div class="progress-bar bg-${a.confidence >= 0.6 ? 'success' : 'warning'}"
+                   style="width:${pct}%">${pct}%</div>
             </div>
-          </div>
-        </div>`).join('')}</div>`
-    : '<p class="fs-5 text-muted">ไม่พบสัตว์ในภาพ</p>';
+          </td></tr>`;
+      }).join('')
+    : '<tr><td colspan="3" class="text-muted py-3">ไม่พบสัตว์ในภาพนี้</td></tr>';
 
   out.innerHTML = `
-    <div class="card">
-      <div class="card-body">
-        <div class="mb-3">
-          <span class="badge text-bg-${BADGE[j.status] ?? 'secondary'}">${esc(j.status)}</span>
-          <span class="badge text-bg-light border">${j.filtered.accepted ? 'ผ่านตัวกรอง' : 'ตัวกรองไม่รับ'}</span>
-          <span class="badge text-bg-light border">${esc(j.filtered.state)}</span>
-        </div>
-        ${cards}
-        <table class="table table-sm mb-3">
-          <tbody>
-            <tr><th class="text-muted fw-normal" style="width:40%">ความมั่นใจรวม</th>
-                <td>${(j.raw.overall_confidence*100).toFixed(0)}%</td></tr>
-            <tr><th class="text-muted fw-normal">เหตุผลตัวกรอง</th><td>${esc(j.filtered.reason)}</td></tr>
-            <tr><th class="text-muted fw-normal">โมเดล</th>
-                <td>${esc(j.model.name)} <span class="text-muted">(${esc(j.model.prompt_version)})</span></td></tr>
-            <tr><th class="text-muted fw-normal">เวลาที่ใช้</th><td>${(j.timing_ms.total/1000).toFixed(1)} วินาที</td></tr>
-            <tr><th class="text-muted fw-normal">Request ID</th>
-                <td class="font-monospace small">${esc(j.request_id)}</td></tr>
-          </tbody>
-        </table>
-        <details><summary class="text-muted small">ดูข้อมูลดิบทั้งหมด</summary>
-          <pre class="mt-2 mb-0">${esc(JSON.stringify(j, null, 2))}</pre></details>
-      </div>
-    </div>`;
+    <table class="table table-sm align-middle mb-3">
+      <thead><tr class="text-muted small">
+        <th>ชนิด</th><th>จำนวน</th><th>ความมั่นใจ</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+
+    <div class="mb-3">
+      <span class="badge text-bg-${j.filtered.accepted ? 'success' : 'secondary'}">
+        ${j.filtered.accepted ? 'ผ่านตัวกรอง' : 'ตัวกรองไม่รับ'}</span>
+      <span class="badge text-bg-light border">${esc(STATE[j.filtered.state] ?? j.filtered.state)}</span>
+      <span class="badge text-bg-light border">ยืนยันจาก ${j.filtered.corroborated_frames} เฟรม</span>
+    </div>
+
+    <table class="table table-sm table-lte mb-3">
+      <tbody>
+        <tr><th>เหตุผลของตัวกรอง</th><td>${esc(j.filtered.reason)}</td></tr>
+        <tr><th>วิธีกรอง</th><td>${esc(j.filtered.method)}</td></tr>
+        <tr><th>กล้อง</th><td>${esc(j.camera_id)}</td></tr>
+        <tr><th>เวลาที่รับภาพ</th><td>${esc(j.received_at)}</td></tr>
+        <tr><th>โมเดล</th><td>${esc(j.model.name)}
+            <span class="text-muted">(${esc(j.model.prompt_version)}${
+              j.model.finish_reason ? ' · จบแบบ ' + esc(j.model.finish_reason) : ''})</span></td></tr>
+        <tr><th>Request ID</th><td class="font-monospace small">${esc(j.request_id)}</td></tr>
+      </tbody>
+    </table>
+
+    <details><summary class="text-muted small">ดูข้อมูลดิบทั้งหมด</summary>
+      <pre class="mt-2 mb-0">${esc(JSON.stringify(j, null, 2))}</pre></details>`;
 }
 
 function esc(s) {

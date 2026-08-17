@@ -20,6 +20,7 @@ from typing import Dict, List
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
 
@@ -61,6 +62,23 @@ APP_VERSION = "0.5.0"
 BUILD_NOTES = "llm-first pipeline (prompt v3, no CV gate), thermal + colour"
 
 app = FastAPI(title="animalcountllm", version=APP_VERSION)
+
+# 🔴 หน้าเว็บทดสอบที่ /verify · ไฟล์นิ่งล้วน ไม่ใช่ endpoint
+#
+# เคยแยกเป็น static site คนละคอมโพเนนต์ใน .do/app.yaml เพื่อไม่ให้ API รู้จัก UI เลย
+# **ใช้ไม่ได้จริง** App Platform ไม่อ่าน .do/app.yaml ของแอปที่สร้างไว้แล้ว
+# spec ตัวจริงอยู่ใน Console · push ขึ้น main แล้ว /verify ตอบ 404 จาก FastAPI เอง
+# แปลว่าคอมโพเนนต์นั้นไม่เคยถูกสร้าง · 2026-08-17 เลยย้ายมา mount ตรงนี้
+# ให้ deploy_on_push ส่งขึ้นได้โดยไม่ต้องกดอะไรใน Console
+#
+# บรรทัดพวกนี้ไม่แตะ endpoint ไม่แตะ response spec ไม่แตะ _auth ไม่แตะ logic
+# หน้าเว็บยังเป็น client ธรรมดาที่ยิง POST /v1/frames และโดน 401 เหมือนใครก็ตาม
+# **ห้ามให้มันข้าม auth และห้ามให้ app/ ไปอ่านอะไรจาก ui/ นอกจากเสิร์ฟไฟล์**
+_UI_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ui")
+if os.path.isdir(_UI_DIR):
+    app.mount("/verify", StaticFiles(directory=_UI_DIR, html=True), name="verify")
+else:
+    print(f"[startup] ไม่พบ {_UI_DIR} · /verify จะตอบ 404", flush=True)
 
 
 def _writable(preferred: str, fallback: str, is_dir: bool = False) -> str:

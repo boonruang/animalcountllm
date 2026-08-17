@@ -10,20 +10,13 @@
 name: animalcountllm
 region: sgp
 
-# หน้าเว็บทดสอบ · static ล้วน ไม่มี build ไม่มี runtime
-# 🔴 ต้องอยู่ใน app เดียวกับ service api เพราะ app/main.py ไม่มี CORS middleware
-# และเราไม่แตะโค้ด API · โดเมนเดียวกัน = same origin = fetch ไป /v1/frames ผ่าน
-# แยกไปเป็น app/โดเมนอื่นเมื่อไร หน้าเว็บจะยิงไม่ออกทันที โดยที่ API ยังตอบ 200 ปกติ
-static_sites:
-  - name: verify-ui
-    github:
-      repo: boonruang/animalcountllm
-      branch: main
-      deploy_on_push: true
-    source_dir: ui
-    index_document: index.html
-    routes:
-      - path: /verify
+# 🔴 เคยมี static_sites: verify-ui ตรงนี้ ถอดออกแล้ว 2026-08-17
+# App Platform **ไม่อ่านไฟล์นี้** สำหรับแอปที่สร้างไว้แล้ว spec ตัวจริงอยู่ใน Console
+# push ไปแล้วคอมโพเนนต์ไม่เกิด /verify ตอบ 404 จาก FastAPI · หน้าเว็บเลยย้ายไป
+# mount ใน app/main.py แทน ซึ่ง deploy_on_push ส่งขึ้นได้เองจริง
+#
+# บทเรียน: อะไรที่ต้องกดใน Console ถึงจะมีผล **ห้ามเขียนไว้ที่นี่แล้วเชื่อว่ามันจะเกิด**
+# ไฟล์นี้เป็นเอกสารว่า spec ควรหน้าตายังไง ไม่ใช่สิ่งที่ deploy อ่าน
 
 services:
   - name: api

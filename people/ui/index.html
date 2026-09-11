@@ -1,0 +1,595 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart People Counting</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+<style>
+  /* โทนเดียวกับหน้า /verify ของฝั่งช้าง ตั้งใจให้ดูเป็นระบบเดียวกัน
+     ต่างแค่แถบหัวเป็นสีน้ำเงิน ไม่ใช่ฟ้า จะได้ไม่เปิดผิดหน้า */
+  body { background:#fff; color:#212529; }
+  .navbar-white { background:#fff; border-bottom:1px solid #dee2e6; }
+  .brand { font-weight:700; letter-spacing:.02em; color:#343a40; }
+
+  .small-box { border-radius:.5rem; position:relative; overflow:hidden;
+               color:#fff; padding:1rem 1.25rem; height:100%; }
+  .small-box .inner h3 { font-size:2.25rem; font-weight:700; margin:0; line-height:1.1; }
+  .small-box .inner p  { margin:.25rem 0 0; opacity:.9; font-size:.9rem; }
+  .small-box .icon { position:absolute; right:.75rem; top:.5rem;
+                     font-size:3.5rem; opacity:.25; line-height:1; }
+  .small-box .box-footer { display:block; margin:.75rem -1.25rem -1rem;
+                           padding:.4rem 1.25rem; background:rgba(0,0,0,.12);
+                           font-size:.8rem; color:#fff; }
+  .bg-primary-lte { background:#0d6efd; }
+  .bg-info-lte    { background:#17a2b8; }
+  .bg-success-lte { background:#28a745; }
+  .bg-warning-lte { background:#ffc107; color:#1f2d3d; }
+  .bg-warning-lte .box-footer { color:#1f2d3d; }
+  .bg-danger-lte  { background:#dc3545; }
+  .bg-muted-lte   { background:#adb5bd; }
+
+  .info-box { display:flex; align-items:center; gap:.85rem; background:#fff;
+              border:1px solid #dee2e6; border-radius:.5rem; padding:.75rem 1rem; height:100%; }
+  .info-box-icon { width:44px; height:44px; flex:0 0 44px; border-radius:.4rem;
+                   display:flex; align-items:center; justify-content:center;
+                   font-size:1.3rem; color:#fff; }
+  .info-box-text { font-size:.75rem; text-transform:uppercase; letter-spacing:.03em;
+                   color:#6c757d; display:block; }
+  .info-box-number { font-weight:600; font-size:.95rem; word-break:break-all; }
+
+  .card-lte { border:1px solid #dee2e6; border-radius:.5rem; border-top:3px solid #0d6efd; }
+  .card-lte > .card-header { background:#fff; border-bottom:1px solid #dee2e6;
+                             font-weight:600; font-size:1rem; }
+
+  #drop { border:2px dashed #ced4da; border-radius:.5rem; padding:2rem 1rem;
+          text-align:center; color:#6c757d; cursor:pointer; transition:.15s; }
+  #drop.over, #drop:hover { border-color:#0d6efd; background:#f2f7ff; color:#0d6efd; }
+
+  /* ผืนวาดกรอบ · ภาพเฟรมเต็มจากกล้องมาเป็น 1920x1080 ย่อให้พอดีการ์ด
+     แล้วแปลงพิกัดกลับเป็นพิกเซลจริงตอนส่ง ไม่ใช่ส่งพิกัดของภาพที่ย่อแล้ว */
+  #stage { position:relative; display:inline-block; max-width:100%; }
+  #stage img { max-width:100%; display:block; border-radius:.5rem; }
+  #stage canvas { position:absolute; inset:0; width:100%; height:100%;
+                  cursor:crosshair; border-radius:.5rem; }
+
+  .person-card { border:1px solid #dee2e6; border-radius:.5rem; margin-bottom:1rem; }
+  .person-card > .ph { display:flex; justify-content:space-between; align-items:center;
+                       padding:.6rem .9rem; border-bottom:1px solid #dee2e6;
+                       background:#f8f9fa; border-radius:.5rem .5rem 0 0; }
+  .person-card .pid { font-weight:700; font-family:ui-monospace,monospace; }
+  .attr { font-size:.85rem; }
+  .attr th { font-weight:500; color:#6c757d; width:34%; white-space:nowrap; }
+  .desc { background:#f8f9fa; border-left:3px solid #0d6efd; border-radius:.25rem;
+          padding:.6rem .8rem; font-size:.95rem; line-height:1.6; }
+  pre { background:#f8f9fa; border:1px solid #dee2e6; border-radius:.5rem;
+        padding:.75rem; max-height:360px; overflow:auto; font-size:.78rem; }
+  .chip { display:inline-block; border:1px solid #dee2e6; border-radius:1rem;
+          padding:.1rem .6rem; font-size:.78rem; margin:0 .25rem .25rem 0; }
+  .sw { display:inline-block; width:.8rem; height:.8rem; border-radius:.2rem;
+        border:1px solid rgba(0,0,0,.25); vertical-align:-1px; margin-right:.35rem; }
+</style>
+</head>
+<body>
+
+<nav class="navbar navbar-white sticky-top">
+  <div class="container-fluid px-4">
+    <span class="navbar-brand brand mb-0 text-uppercase">
+      <i class="bi bi-people-fill text-primary me-2"></i>Smart People Counting
+    </span>
+    <span class="d-none d-md-inline small text-muted" id="clock"></span>
+  </div>
+</nav>
+
+<div class="container-fluid px-4 py-3" style="max-width:1320px">
+
+  <div class="row g-3 mb-3">
+    <div class="col-6 col-lg-3">
+      <div class="small-box bg-muted-lte">
+        <div class="inner"><h3 id="b-people">–</h3><p>คนที่อ่านได้</p></div>
+        <i class="bi bi-person-check icon"></i>
+        <span class="box-footer" id="b-people-foot">ยังไม่มีข้อมูล</span>
+      </div>
+    </div>
+    <div class="col-6 col-lg-3">
+      <div class="small-box bg-muted-lte">
+        <div class="inner"><h3 id="b-gender">–</h3><p>เพศ</p></div>
+        <i class="bi bi-gender-ambiguous icon"></i>
+        <span class="box-footer" id="b-gender-foot">ยังไม่มีข้อมูล</span>
+      </div>
+    </div>
+    <div class="col-6 col-lg-3">
+      <div class="small-box bg-muted-lte">
+        <div class="inner"><h3 id="b-conf">–</h3><p>ความมั่นใจเฉลี่ย</p></div>
+        <i class="bi bi-speedometer2 icon"></i>
+        <span class="box-footer" id="b-conf-foot">ยังไม่มีข้อมูล</span>
+      </div>
+    </div>
+    <div class="col-6 col-lg-3">
+      <div class="small-box bg-muted-lte">
+        <div class="inner"><h3 id="b-time">–</h3><p>เวลาที่ใช้</p></div>
+        <i class="bi bi-stopwatch icon"></i>
+        <span class="box-footer" id="b-time-foot">ยังไม่มีข้อมูล</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-4">
+    <div class="col-md-6 col-lg-3">
+      <div class="info-box">
+        <div class="info-box-icon bg-secondary" id="h-icon"><i class="bi bi-hdd-network"></i></div>
+        <div><span class="info-box-text">สถานะระบบ</span>
+             <span class="info-box-number" id="h-status">กำลังเช็ค</span></div>
+      </div>
+    </div>
+    <div class="col-md-6 col-lg-3">
+      <div class="info-box">
+        <div class="info-box-icon bg-primary"><i class="bi bi-cpu"></i></div>
+        <div><span class="info-box-text">โมเดล</span>
+             <span class="info-box-number" id="h-model">–</span></div>
+      </div>
+    </div>
+    <div class="col-md-6 col-lg-3">
+      <div class="info-box">
+        <div class="info-box-icon bg-success"><i class="bi bi-people"></i></div>
+        <div><span class="info-box-text">จำนวนคนต่อ 1 request</span>
+             <span class="info-box-number" id="h-max">–</span></div>
+      </div>
+    </div>
+    <div class="col-md-6 col-lg-3">
+      <div class="info-box">
+        <div class="info-box-icon bg-warning text-dark"><i class="bi bi-hdd"></i></div>
+        <div><span class="info-box-text">การเก็บภาพ</span>
+             <span class="info-box-number" id="h-save">–</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-lg-5">
+      <div class="card card-lte mb-3">
+        <div class="card-header"><i class="bi bi-shield-lock me-2"></i>การเข้าใช้งาน</div>
+        <div class="card-body">
+          <label for="key" class="form-label">X-API-Key <span class="text-danger">*</span></label>
+          <input id="key" type="password" class="form-control" autocomplete="off" required>
+          <div class="form-text mb-3">จำเป็นต้องใส่ ขอคีย์จาก admin</div>
+
+          <label for="cam" class="form-label">Camera ID</label>
+          <input id="cam" type="text" class="form-control" value="N3-1C23A">
+        </div>
+      </div>
+
+      <div class="card card-lte">
+        <div class="card-header"><i class="bi bi-image me-2"></i>ภาพที่ต้องการอ่าน</div>
+        <div class="card-body">
+          <div id="drop">
+            <i class="bi bi-cloud-arrow-up fs-2 d-block mb-2"></i>
+            ลากภาพมาวาง หรือคลิกเพื่อเลือกไฟล์<br>
+            <span class="small">เลือกได้หลายไฟล์ · ไฟล์ละหนึ่งคน</span>
+          </div>
+          <input id="file" type="file" accept="image/*" multiple hidden>
+
+          <!-- โหมดเฟรมเต็ม: ลากกรอบทับตัวคนได้เลย เหมือนที่ระบบปลายทางส่ง bbox มา -->
+          <div id="stagewrap" class="text-center mt-3 d-none">
+            <div id="stage"><img id="preview" alt=""><canvas id="cv"></canvas></div>
+            <div class="small text-muted mt-2">
+              ลากกรอบทับตัวคนในภาพ · ไม่ลากเลย = ส่งทั้งภาพเป็นหนึ่งคน
+              <button id="clearbox" class="btn btn-sm btn-link py-0">ล้างกรอบ</button>
+            </div>
+          </div>
+
+          <div id="filelist" class="mt-3 d-none"></div>
+          <div id="warn" class="alert alert-warning mt-3 mb-0 d-none py-2"></div>
+        </div>
+        <div class="card-footer bg-white border-top d-grid">
+          <button id="go" class="btn btn-primary btn-lg" disabled>
+            <i class="bi bi-search me-2"></i>อ่านข้อมูลคน
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-7">
+      <div class="card card-lte">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span><i class="bi bi-clipboard-data me-2"></i>ผลการอ่าน</span>
+          <span id="hdr-badge"></span>
+        </div>
+        <div class="card-body" id="out">
+          <p class="text-muted mb-0">เลือกภาพทางซ้ายแล้วกดอ่าน ผลจะขึ้นตรงนี้</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="text-center text-muted small mt-4 mb-2" id="foot">&nbsp;</p>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const drop = $('#drop'), file = $('#file'), img = $('#preview'), go = $('#go'), out = $('#out');
+const cv = $('#cv'), ctx = cv.getContext('2d');
+
+let files = [];      // หลายไฟล์ = หลายคน
+let single = null;   // ไฟล์เดียว = โหมดวาดกรอบได้
+let boxes = [];      // [x,y,w,h] ในพิกัดจริงของภาพ ไม่ใช่พิกัดบนจอ
+let natural = {w:0, h:0};
+let objUrl = null, done = 0;
+
+const G   = { male:'ชาย', female:'หญิง', unknown:'ระบุไม่ได้' };
+const YN  = { yes:'ใช่', no:'ไม่', unknown:'ไม่แน่ใจ' };
+const SKIN= { light:'ผิวขาว', medium:'ผิวสองสี', tan:'ผิวแทน', dark:'ผิวเข้ม', unknown:'ไม่แน่ใจ' };
+const BUILD={ slim:'ผอม', average:'ปานกลาง', heavy:'ท้วม', unknown:'ไม่แน่ใจ' };
+const HT  = { short:'เตี้ย', average:'ปานกลาง', tall:'สูง', unknown:'ไม่แน่ใจ' };
+const HAIR= { bald:'ศีรษะล้าน', very_short:'สั้นมาก', short:'สั้น', medium:'ประบ่า',
+              long:'ยาว', tied_back:'รวบผม', covered:'คลุมผม', unknown:'ไม่แน่ใจ' };
+const HC  = { black:'ดำ', dark_brown:'น้ำตาลเข้ม', brown:'น้ำตาล', blonde:'บลอนด์',
+              grey:'ดอกเลา', white:'ขาว', dyed_other:'ย้อมสีอื่น', unknown:'ไม่แน่ใจ' };
+const COL = { black:'ดำ', white:'ขาว', grey:'เทา', red:'แดง', orange:'ส้ม', yellow:'เหลือง',
+              green:'เขียว', blue:'ฟ้า', navy:'น้ำเงินเข้ม', purple:'ม่วง', pink:'ชมพู',
+              brown:'น้ำตาล', beige:'เบจ', cream:'ครีม', gold:'ทอง', silver:'เงิน',
+              multicolour:'หลายสี', unknown:'ไม่แน่ใจ' };
+const HEX = { black:'#000', white:'#fff', grey:'#888', red:'#dc3545', orange:'#fd7e14',
+              yellow:'#ffc107', green:'#198754', blue:'#0dcaf0', navy:'#0a2a66',
+              purple:'#6f42c1', pink:'#e685b5', brown:'#7a4b2a', beige:'#e8dcc0',
+              cream:'#f7f0dd', gold:'#d4af37', silver:'#c0c0c0',
+              multicolour:'linear-gradient(90deg,#dc3545,#ffc107,#198754)', unknown:'transparent' };
+const TOP = { t_shirt:'เสื้อยืด', shirt:'เสื้อเชิ้ต', polo:'เสื้อโปโล', blouse:'เสื้อผู้หญิง',
+              jacket:'แจ็กเก็ต', suit_jacket:'สูท', coat:'เสื้อโค้ท', hoodie:'ฮู้ด',
+              sweater:'เสื้อไหมพรม', vest:'เสื้อกั๊ก', dress:'ชุดเดรส', uniform:'ชุดยูนิฟอร์ม',
+              other:'อื่นๆ', unknown:'ไม่แน่ใจ' };
+const BOT = { trousers:'กางเกงสแลค', jeans:'ยีนส์', shorts:'กางเกงขาสั้น', skirt:'กระโปรง',
+              dress:'ชุดเดรส', uniform:'ชุดยูนิฟอร์ม', other:'อื่นๆ', unknown:'ไม่แน่ใจ' };
+const FW  = { sneakers:'รองเท้าผ้าใบ', leather_shoes:'รองเท้าหนัง', boots:'บู๊ท',
+              sandals:'รองเท้าแตะรัดส้น', heels:'ส้นสูง', slippers:'รองเท้าแตะ',
+              other:'อื่นๆ', unknown:'ไม่แน่ใจ' };
+const SLV = { sleeveless:'แขนกุด', short:'แขนสั้น', long:'แขนยาว', unknown:'ไม่แน่ใจ' };
+const PAT = { plain:'สีพื้น', striped:'ลายทาง', checked:'ลายตาราง', printed:'ลายพิมพ์',
+              logo:'มีโลโก้', unknown:'ไม่แน่ใจ' };
+const OUT = { jacket:'แจ็กเก็ต', suit_jacket:'สูท', blazer:'เบลเซอร์', coat:'เสื้อโค้ท',
+              cardigan:'คาร์ดิแกน', hoodie:'ฮู้ด', vest:'เสื้อกั๊ก', uniform:'ชุดยูนิฟอร์ม',
+              none:'ไม่ได้ใส่', unknown:'ไม่แน่ใจ' };
+const CAR = { backpack:'เป้', shoulder_bag:'กระเป๋าสะพาย', handbag:'กระเป๋าถือ',
+              tote:'ถุงผ้า', shopping_bag:'ถุงช้อปปิ้ง', luggage:'กระเป๋าเดินทาง',
+              phone:'โทรศัพท์', laptop:'แล็ปท็อป', tablet:'แท็บเล็ต', document:'เอกสาร',
+              umbrella:'ร่ม', lanyard:'สายคล้องคอ', badge:'บัตรพนักงาน', box:'กล่อง',
+              other:'อื่นๆ' };
+const BADGE = { ok:'success', partial:'warning', degraded:'warning', error:'danger' };
+const PBADGE= { ok:'success', degraded:'warning', error:'danger' };
+
+const clock = () => $('#clock').textContent =
+  new Date().toLocaleString('th-TH', { dateStyle:'medium', timeStyle:'medium' });
+clock(); setInterval(clock, 1000);
+
+// ---------------------------------------------------------------- health
+fetch('/people/healthz').then(r => r.json()).then(h => {
+  const bad = h.status !== 'ok';
+  $('#h-status').innerHTML =
+    `<span class="text-${bad ? 'warning' : 'success'}">${esc(h.status)}</span>` +
+    `<span class="text-muted"> · v${esc(h.version ?? '?')}</span>`;
+  $('#h-icon').className = 'info-box-icon ' + (bad ? 'bg-warning text-dark' : 'bg-success');
+  $('#h-model').textContent = h.model ?? '–';
+  $('#h-max').innerHTML = `${esc(h.max_objects ?? '–')} คน ` +
+    `<span class="text-muted">· ขนาน ${esc(h.workers ?? '–')} เส้น</span>`;
+  $('#h-save').innerHTML = h.save_images === 'none'
+    ? '<span class="text-success">ไม่เก็บภาพ</span>'
+    : `<span class="text-warning">เก็บ: ${esc(h.save_images)}</span>`;
+  $('#foot').innerHTML = `${esc(h.provider ?? '')} · prompt ${esc(h.prompt_version ?? '')}` +
+    (h.store_error ? ` · <span class="text-danger">${esc(h.store_error)}</span>` : '');
+}).catch(() => {
+  $('#h-status').innerHTML = '<span class="text-danger">ติดต่อระบบไม่ได้</span>';
+  $('#h-icon').className = 'info-box-icon bg-danger';
+});
+
+// ---------------------------------------------------------------- ภาพ
+drop.onclick = () => file.click();
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); load(e.dataTransfer.files); };
+file.onchange = () => load(file.files);
+
+function load(fl) {
+  const list = [...fl].filter(f => f.type.startsWith('image/'));
+  if (!list.length) return;
+  boxes = []; files = []; single = null;
+  $('#stagewrap').classList.add('d-none');
+  $('#filelist').classList.add('d-none');
+
+  if (list.length === 1) {
+    single = list[0];
+    readB64(single).then(b64 => {
+      single.b64 = b64;
+      if (objUrl) URL.revokeObjectURL(objUrl);
+      objUrl = URL.createObjectURL(single);
+      img.onload = () => {
+        natural = { w: img.naturalWidth, h: img.naturalHeight };
+        sizeCanvas();
+        $('#stagewrap').classList.remove('d-none');
+      };
+      img.src = objUrl;
+      drop.innerHTML = `<i class="bi bi-file-earmark-image fs-2 d-block mb-2"></i>` +
+                       `${esc(single.name)} · ${(single.size/1024).toFixed(0)} KB`;
+      go.disabled = false;
+    });
+  } else {
+    Promise.all(list.map(readB64)).then(b64s => {
+      files = list.map((f, i) => ({ name: f.name, b64: b64s[i] }));
+      $('#filelist').classList.remove('d-none');
+      $('#filelist').innerHTML = files.map((f, i) =>
+        `<span class="chip"><i class="bi bi-person me-1"></i>${esc(idOf(f.name, i))}</span>`).join('');
+      drop.innerHTML = `<i class="bi bi-images fs-2 d-block mb-2"></i>` +
+                       `${list.length} ไฟล์ · ไฟล์ละหนึ่งคน`;
+      go.disabled = false;
+    });
+  }
+}
+
+// id ของคน: เอาชื่อไฟล์มาใช้ เพราะปลายทางจริงจะส่ง track id ของเขามาเอง
+// หน้านี้แค่ต้องมีอะไรสักอย่างที่ผูกคำตอบกลับได้ และให้คนดูรู้ว่าอันไหนคือใคร
+function idOf(name, i) {
+  return (name.replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 32)
+          || `obj-${i+1}`);
+}
+
+function readB64(f) {
+  return new Promise(res => {
+    const r = new FileReader();
+    // อยู่ในหน่วยความจำแท็บนี้เท่านั้น ไม่มี localStorage ไม่ส่งไปที่อื่นนอกจาก API
+    r.onload = () => res(r.result.split(',')[1]);
+    r.readAsDataURL(f);
+  });
+}
+
+// ---------------------------------------------------------------- วาดกรอบ
+function sizeCanvas() {
+  cv.width = img.clientWidth; cv.height = img.clientHeight;
+  redraw();
+}
+window.addEventListener('resize', () => { if (single) sizeCanvas(); });
+
+let dragging = null;
+cv.onpointerdown = e => {
+  const r = cv.getBoundingClientRect();
+  dragging = { x0: e.clientX - r.left, y0: e.clientY - r.top, x1: 0, y1: 0 };
+  cv.setPointerCapture(e.pointerId);
+};
+cv.onpointermove = e => {
+  if (!dragging) return;
+  const r = cv.getBoundingClientRect();
+  dragging.x1 = e.clientX - r.left; dragging.y1 = e.clientY - r.top;
+  redraw(dragging);
+};
+cv.onpointerup = () => {
+  if (!dragging) return;
+  const d = dragging; dragging = null;
+  const w = Math.abs(d.x1 - d.x0), h = Math.abs(d.y1 - d.y0);
+  if (w < 8 || h < 8) return redraw();   // คลิกพลาด ไม่ใช่กรอบ
+  // แปลงกลับเป็นพิกเซลของภาพจริง · ปลายทางส่ง bbox ในพิกัดของเฟรมเต็มเสมอ
+  const sx = natural.w / cv.width, sy = natural.h / cv.height;
+  boxes.push([Math.round(Math.min(d.x0, d.x1) * sx), Math.round(Math.min(d.y0, d.y1) * sy),
+              Math.round(w * sx), Math.round(h * sy)]);
+  redraw();
+};
+$('#clearbox').onclick = () => { boxes = []; redraw(); };
+
+function redraw(temp) {
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  const sx = cv.width / natural.w, sy = cv.height / natural.h;
+  ctx.lineWidth = 2; ctx.font = '600 13px system-ui';
+  boxes.forEach((b, i) => {
+    ctx.strokeStyle = '#0d6efd';
+    ctx.strokeRect(b[0]*sx, b[1]*sy, b[2]*sx, b[3]*sy);
+    ctx.fillStyle = '#0d6efd';
+    ctx.fillRect(b[0]*sx, b[1]*sy - 18, 58, 18);
+    ctx.fillStyle = '#fff';
+    ctx.fillText('ID:' + (i+1), b[0]*sx + 6, b[1]*sy - 5);
+  });
+  if (temp) {
+    ctx.strokeStyle = '#ffc107';
+    ctx.strokeRect(Math.min(temp.x0,temp.x1), Math.min(temp.y0,temp.y1),
+                   Math.abs(temp.x1-temp.x0), Math.abs(temp.y1-temp.y0));
+  }
+}
+
+function warn(msg) {
+  const w = $('#warn');
+  if (!msg) return w.classList.add('d-none');
+  w.textContent = msg; w.classList.remove('d-none');
+}
+
+// ---------------------------------------------------------------- ยิง
+go.onclick = async () => {
+  const key = $('#key').value.trim(), cam = $('#cam').value.trim();
+  if (!key) { warn('ต้องใส่ X-API-Key ก่อน ขอคีย์จาก admin'); $('#key').focus(); return; }
+  if (!cam) { warn('ต้องใส่ Camera ID ก่อน'); $('#cam').focus(); return; }
+  warn(null);
+
+  let body;
+  if (single && boxes.length) {
+    body = { camera_id: cam, frame_base64: single.b64,
+             objects: boxes.map((b, i) => ({ id: `ID-${i+1}`, bbox: b })) };
+  } else if (single) {
+    body = { camera_id: cam,
+             objects: [{ id: idOf(single.name, 0), image_base64: single.b64 }] };
+  } else {
+    body = { camera_id: cam,
+             objects: files.map((f, i) => ({ id: idOf(f.name, i), image_base64: f.b64 })) };
+  }
+  const n = body.objects.length;
+
+  go.disabled = true;
+  go.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>กำลังอ่าน';
+  $('#hdr-badge').innerHTML = '<span class="badge text-bg-light border">กำลังประมวลผล</span>';
+  out.innerHTML = '<div class="d-flex align-items-center gap-2 text-muted">' +
+    '<span class="spinner-border spinner-border-sm"></span>' +
+    `กำลังให้โมเดลอ่าน ${n} คน อาจใช้เวลาถึง 25 วินาที</div>`;
+  try {
+    const res = await fetch('/people/v1/persons', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
+      body: JSON.stringify(body)
+    });
+    const j = await res.json();
+    if (res.status === 401) fail('X-API-Key ไม่ถูกต้อง ตรวจกับ admin อีกครั้ง');
+    else if (!res.ok) fail(`ผิดพลาด HTTP ${res.status} · ${fmtDetail(j.detail)}`);
+    else { done += n; dashboard(j); render(j); }
+  } catch (e) {
+    fail('ติดต่อระบบไม่ได้: ' + e);
+  } finally {
+    go.disabled = false;
+    go.innerHTML = '<i class="bi bi-search me-2"></i>อ่านข้อมูลคน';
+  }
+};
+
+function fmtDetail(d) {
+  if (!d) return '';
+  if (typeof d === 'string') return esc(d);
+  return esc(JSON.stringify(d));   // 422 ของ FastAPI เป็น array ไม่ใช่ string
+}
+
+function fail(msg) {
+  $('#hdr-badge').innerHTML = '<span class="badge text-bg-danger">ล้มเหลว</span>';
+  out.innerHTML = `<div class="alert alert-danger mb-0">${msg}</div>`;
+}
+
+function box(id, cls, value, foot) {
+  $('#' + id).textContent = value;
+  $('#' + id + '-foot').textContent = foot;
+  $('#' + id).closest('.small-box').className = 'small-box ' + cls;
+}
+
+function dashboard(j) {
+  const ps = j.persons || [], ok = ps.filter(p => p.status === 'ok');
+  box('b-people', ok.length === ps.length ? 'bg-success-lte' : 'bg-warning-lte',
+      `${ok.length}/${ps.length}`,
+      ok.length === ps.length ? 'อ่านได้ครบทุกคน'
+                              : `อ่านไม่ได้ ${ps.length - ok.length} คน`);
+
+  const m = ok.filter(p => p.gender === 'male').length;
+  const f = ok.filter(p => p.gender === 'female').length;
+  const u = ok.length - m - f;
+  box('b-gender', ok.length ? 'bg-primary-lte' : 'bg-muted-lte',
+      ok.length ? `${m}/${f}` : '–',
+      ok.length ? `ชาย ${m} · หญิง ${f}${u ? ` · ระบุไม่ได้ ${u}` : ''}` : 'ยังไม่มีข้อมูล');
+
+  const avg = ok.length ? ok.reduce((s, p) => s + p.overall_confidence, 0) / ok.length : 0;
+  box('b-conf', avg >= 0.6 ? 'bg-success-lte' : 'bg-warning-lte',
+      (avg * 100).toFixed(0) + '%',
+      avg >= 0.6 ? 'อ่านได้ชัด' : 'ต่ำ ภาพอาจเล็กหรือเบลอเกินไป');
+
+  const sec = j.timing_ms.total / 1000;
+  box('b-time', sec > 20 ? 'bg-warning-lte' : 'bg-info-lte', sec.toFixed(1) + ' วิ',
+      `ยิงโมเดลรวม ${(j.timing_ms.vlm_sum/1000).toFixed(1)} วิ · อ่านไปแล้ว ${done} คน`);
+}
+
+// ---------------------------------------------------------------- ผลรายคน
+function bar(v, label) {
+  const pct = (v * 100).toFixed(0);
+  return `<div class="d-flex align-items-center gap-2">
+    <span class="text-muted" style="min-width:5.5rem">${label}</span>
+    <div class="progress flex-grow-1" style="height:14px">
+      <div class="progress-bar bg-${v >= 0.6 ? 'success' : 'warning'}"
+           style="width:${pct}%"></div></div>
+    <span class="small" style="min-width:2.5rem">${pct}%</span></div>`;
+}
+
+function colorCell(c, map) {
+  const bg = HEX[c] ?? 'transparent';
+  const style = bg.startsWith('linear') ? `background:${bg}` : `background:${bg}`;
+  return `<span class="sw" style="${style}"></span>${map[c] ?? esc(c)}`;
+}
+
+function garment(g, typeMap) {
+  if (!g) return 'ไม่แน่ใจ';
+  const bits = [typeMap[g.type] ?? esc(g.type)];
+  if (g.color && g.color !== 'unknown') bits.push('สี' + (COL[g.color] ?? esc(g.color)));
+  if (g.secondary_color && g.secondary_color !== 'unknown')
+    bits.push('ตัด' + (COL[g.secondary_color] ?? esc(g.secondary_color)));
+  if (g.pattern && g.pattern !== 'unknown' && g.pattern !== 'plain')
+    bits.push(PAT[g.pattern] ?? esc(g.pattern));
+  const sw = g.color && g.color !== 'unknown'
+    ? `<span class="sw" style="background:${HEX[g.color] ?? 'transparent'}"></span>` : '';
+  return sw + bits.join(' ');
+}
+
+function person(p) {
+  if (p.status !== 'ok') {
+    return `<div class="person-card">
+      <div class="ph"><span class="pid">${esc(p.id)}</span>
+        <span class="badge text-bg-${PBADGE[p.status]}">${esc(p.status)}</span></div>
+      <div class="p-3 mb-0 text-muted small">
+        <i class="bi bi-exclamation-triangle me-1"></i>${esc(p.reason || 'อ่านไม่ได้')}
+        <div class="mt-1">ระบบไม่เดาแทน ลองส่งภาพที่ชัดกว่านี้อีกครั้ง</div>
+      </div></div>`;
+  }
+  const a = p.appearance || {};
+  const carry = (a.carrying || []).map(c => `<span class="chip">${CAR[c] ?? esc(c)}</span>`).join('');
+  return `<div class="person-card">
+    <div class="ph">
+      <span><span class="pid">${esc(p.id)}</span>
+        <span class="badge text-bg-primary ms-2">${G[p.gender] ?? esc(p.gender)}</span>
+        <span class="badge text-bg-secondary">อายุ ${esc(p.age_range)} ปี</span></span>
+      <span class="badge text-bg-${PBADGE[p.status]}">${esc(p.status)}</span>
+    </div>
+    <div class="p-3">
+      <div class="desc mb-3">${esc(p.description || 'โมเดลไม่ได้ให้คำบรรยาย')}</div>
+      ${a.distinctive ? `<div class="mb-2"><i class="bi bi-star-fill text-warning me-1"></i>
+         <b>จุดสังเกต:</b> ${esc(a.distinctive)}</div>` : ''}
+      <div class="row g-3">
+        <div class="col-md-6"><table class="table table-sm attr mb-0"><tbody>
+          <tr><th>สีผิว</th><td>${SKIN[a.skin_tone] ?? esc(a.skin_tone)}</td></tr>
+          <tr><th>รูปร่าง</th><td>${BUILD[a.build] ?? esc(a.build)}</td></tr>
+          <tr><th>ส่วนสูง</th><td>${HT[a.height] ?? esc(a.height)}</td></tr>
+          <tr><th>ทรงผม</th><td>${HAIR[a.hair_length] ?? esc(a.hair_length)}</td></tr>
+          <tr><th>สีผม</th><td>${colorCell(a.hair_color, HC)}</td></tr>
+          <tr><th>แว่นตา</th><td>${YN[a.glasses] ?? esc(a.glasses)}</td></tr>
+        </tbody></table></div>
+        <div class="col-md-6"><table class="table table-sm attr mb-0"><tbody>
+          <tr><th>หน้ากากอนามัย</th><td>${YN[a.face_mask] ?? esc(a.face_mask)}</td></tr>
+          <tr><th>หนวดเครา</th><td>${YN[a.facial_hair] ?? esc(a.facial_hair)}</td></tr>
+          <tr><th>หมวก</th><td>${YN[a.headwear] ?? esc(a.headwear)}</td></tr>
+          <tr><th>เสื้อ</th><td>${garment(a.top, TOP)}
+              <span class="text-muted">· ${SLV[a.top_sleeve] ?? ''}</span></td></tr>
+          <tr><th>เสื้อคลุม</th><td>${a.outer && a.outer.type === 'none'
+              ? '<span class="text-muted">ไม่ได้ใส่</span>' : garment(a.outer, OUT)}</td></tr>
+          <tr><th>กางเกง/กระโปรง</th><td>${garment(a.bottom, BOT)}</td></tr>
+          <tr><th>รองเท้า</th><td>${garment(a.footwear, FW)}</td></tr>
+        </tbody></table></div>
+      </div>
+      ${carry ? `<div class="mt-2"><span class="text-muted small me-2">ถือ/สะพาย:</span>${carry}</div>` : ''}
+      <div class="mt-3 d-flex flex-column gap-1">
+        ${bar(p.gender_confidence, 'เพศ')}
+        ${bar(p.age_range_confidence, 'ช่วงอายุ')}
+        ${bar(p.appearance_confidence, 'รูปพรรณ')}
+      </div>
+      ${p.reason ? `<div class="small text-muted mt-2">หมายเหตุจากโมเดล: ${esc(p.reason)}</div>` : ''}
+      <div class="small text-muted mt-2">
+        ภาพที่อ่าน ${p.image ? `${p.image.w}x${p.image.h} (${esc(p.image.source)})` : '–'}
+        ${p.image && p.image.bbox_used ? `· กรอบที่ครอปจริง [${p.image.bbox_used.join(', ')}]` : ''}
+        · ${(p.timing_ms/1000).toFixed(1)} วิ</div>
+    </div></div>`;
+}
+
+function render(j) {
+  $('#hdr-badge').innerHTML =
+    `<span class="badge text-bg-${BADGE[j.status] ?? 'secondary'}">${esc(j.status)}</span>`;
+  out.innerHTML = (j.persons || []).map(person).join('') + `
+    <table class="table table-sm mb-3">
+      <tbody class="attr">
+        <tr><th>กล้อง</th><td>${esc(j.camera_id)}</td></tr>
+        <tr><th>เวลาที่รับภาพ</th><td>${esc(j.received_at)}</td></tr>
+        <tr><th>โมเดล</th><td>${esc(j.model.name)}
+            <span class="text-muted">(${esc(j.model.prompt_version)})</span></td></tr>
+        <tr><th>Request ID</th><td class="font-monospace small">${esc(j.request_id)}</td></tr>
+      </tbody></table>
+    <details><summary class="text-muted small">ดูข้อมูลดิบทั้งหมด</summary>
+      <pre class="mt-2 mb-0">${esc(JSON.stringify(j, null, 2))}</pre></details>`;
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+</script>
+</body>
+</html>

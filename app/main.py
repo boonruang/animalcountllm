@@ -58,8 +58,9 @@ from .store.base import DetectionRecord, FrameRecord, make_store  # noqa: E402
 # ปลายทางแยกออกว่าจำนวนมาจากไหนด้วย model.prompt_version (v3 = โมเดลนับเอง)
 PIPELINE = os.environ.get("PIPELINE", "llm").lower()
 
-APP_VERSION = "0.5.0"
-BUILD_NOTES = "llm-first pipeline (prompt v3, no CV gate), thermal + colour"
+APP_VERSION = "0.6.0"
+BUILD_NOTES = ("llm-first pipeline (prompt v3, no CV gate), thermal + colour"
+               " · + smart people counting mounted at /people")
 
 app = FastAPI(title="animalcountllm", version=APP_VERSION)
 
@@ -175,7 +176,11 @@ def healthz():
                                else prompt.PROMPT_VERSION),
             "store": os.environ.get("STORE_BACKEND", "sqlite"),
             "store_path": STORE_DSN, "store_error": STORE_ERROR,
-            "image_dir": IMAGE_DIR, "tracing": llm.tracing}
+            "image_dir": IMAGE_DIR, "tracing": llm.tracing,
+            # งานที่สองติดมาด้วยไหม · mount พังแบบเงียบๆ คือสิ่งที่ต้องมองเห็นจากที่นี่
+            # ไม่ใช่ไปรู้ตอนปลายทางยิง /people/v1/persons แล้วได้ 404 จาก FastAPI
+            "people_mounted": PEOPLE_MOUNT_ERROR is None,
+            "people_error": PEOPLE_MOUNT_ERROR}
 
 
 @app.post("/v1/frames", response_model=FrameOut)
@@ -390,3 +395,29 @@ def rollup(x_api_key: str | None = Header(default=None)):
     """
     _auth(x_api_key)
     return store.rollup_and_prune(int(os.environ.get("RETENTION_DAYS", "7")))
+
+
+# ---------------------------------------------------------------- งานที่สอง
+# 🔴 smart people counting · คนละ endpoint คนละแพ็กเกจ คนละฐานข้อมูล
+#
+# อยู่ repo เดียวกันตามที่ Toy สั่ง 2026-09-11 แต่ **ไม่แตะของเดิมเลย**
+# สามบรรทัดนี้คือทั้งหมดที่ app/ เปลี่ยน · endpoint เดิมทุกเส้น รูป JSON เดิม
+# และ _auth เดิม ไม่ขยับสักตัว (tests/test_response_contract.py เฝ้าไว้อยู่)
+#
+# ทำไมต้อง mount ตรงนี้แทนที่จะแยกคอมโพเนนต์ใหม่บน App Platform:
+# ไฟล์ .do/app.yaml **ไม่ถูกอ่าน** สำหรับแอปที่สร้างไว้แล้ว เจอมาแล้วตอนทำ /verify
+# ทางนี้ deploy_on_push ส่งขึ้นเองได้จริงโดยไม่ต้องกดอะไรใน Console
+#
+# ห่อ try ไว้เพราะ **งานคนพังต้องไม่ทำให้งานช้างตาย** ระบบเตือนช้างที่ล่มเพราะ
+# ฟีเจอร์ที่เพิ่งเพิ่มคือราคาที่ไม่มีใครตกลงจะจ่าย · พังแล้วรายงานที่ /healthz
+if os.environ.get("PEOPLE_ENABLED", "true").lower() == "true":
+    try:
+        from people.main import app as people_app  # noqa: E402
+
+        app.mount("/people", people_app)
+        PEOPLE_MOUNT_ERROR: str | None = None
+    except Exception as e:  # noqa: BLE001
+        PEOPLE_MOUNT_ERROR = f"{type(e).__name__}: {e}"
+        print(f"[startup] 🔴 mount /people ไม่สำเร็จ: {PEOPLE_MOUNT_ERROR}", flush=True)
+else:
+    PEOPLE_MOUNT_ERROR = "disabled by PEOPLE_ENABLED=false"

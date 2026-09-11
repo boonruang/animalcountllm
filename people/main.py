@@ -1,0 +1,415 @@
+"""FastAPI ของงาน smart people counting · รับ id + ภาพ ตอบ เพศ/ช่วงอายุ/รูปพรรณ
+
+แอปตัวนี้ถูก mount ไว้ใต้ `/people` ของแอปเดิม (ดูท้าย `app/main.py`)
+endpoint จริงจึงเป็น:
+
+    POST /people/v1/persons
+    GET  /people/v1/persons/{request_id}
+    POST /people/v1/persons/{request_id}/{object_id}/truth
+    POST /people/v1/maintenance/prune
+    GET  /people/healthz
+    GET  /people/verify/            หน้าเว็บทดสอบด้วยตา
+
+🔴 ทำไมถึง mount ใต้แอปเดิม ไม่แยกเป็นคอมโพเนนต์ใหม่บน App Platform
+เพราะ **App Platform ไม่อ่าน `.do/app.yaml` ของแอปที่สร้างไว้แล้ว** เจอมาแล้ว
+ตอนทำหน้า `/verify` ของฝั่งช้าง 2026-08-17: เขียน static_sites ลงไฟล์ push ขึ้นไป
+คอมโพเนนต์ไม่เคยถูกสร้าง แล้ว path ตอบ 404 จาก FastAPI เอง
+ทางที่ deploy ได้เองจริงโดยไม่ต้องกดอะไรใน Console คือ mount เข้าแอปที่มีอยู่
+Procfile เดิม · run_command เดิม · env เดิม
+
+🔴 บริการนี้ไม่ยิงใคร ไม่เตือนใคร ไม่ตัดสินใจแทนใคร เหมือนฝั่งช้างทุกประการ
+ไม่จับคู่ใบหน้า ไม่ระบุตัวบุคคล ไม่เก็บทะเบียนคน · ตอบคำถามที่ถามมาต่อหนึ่งภาพ
+แล้วจบ · ห้ามเพิ่ม face matching / watchlist / outbound webhook ลงในไฟล์นี้
+"""
+from __future__ import annotations
+
+import base64
+import binascii
+import hashlib
+import io
+import os
+import time
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from typing import List, Optional, Tuple
+
+from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from .llm import prompt_p1
+from .llm.client import PersonLLM, normalize
+from .schemas import (ImageInfo, ModelInfo, ObjectIn, PersonOut, PersonTruthIn,
+                      PersonsIn, PersonsOut)
+from .store import PersonStore
+
+# 🔴 เลขนี้ต้องขยับทุกครั้งที่ **พฤติกรรมของ endpoint ฝั่งคน** เปลี่ยน
+# แยกจาก APP_VERSION ของฝั่งช้างโดยตั้งใจ สองงานนี้จะ deploy ไปด้วยกันก็จริง
+# แต่ปลายทางคนละทีม ต้องตอบได้ว่า "ของที่คุณเรียกอยู่เวอร์ชันอะไร" แยกกัน
+PEOPLE_VERSION = "0.1.0"
+BUILD_NOTES = "person attributes (gender, age band, appearance) via VLM, prompt p1"
+
+app = FastAPI(title="smart-people-counting", version=PEOPLE_VERSION)
+
+
+def _writable(preferred: str, fallback: str, is_dir: bool = False) -> str:
+    """หา path ที่เขียนได้จริง ไม่ใช่เชื่อว่าเขียนได้
+
+    บทเรียนเดียวกับฝั่งช้าง 2026-08-16: โฟลเดอร์แอปบน buildpack เขียนไม่ได้
+    แล้วอาการที่เห็นคือ container ตายตอน import แล้ว health check บอกว่า
+    connection refused ซึ่งชี้ไปผิดที่ทั้งหมด
+    """
+    target = preferred if is_dir else os.path.dirname(os.path.abspath(preferred))
+    try:
+        os.makedirs(target, exist_ok=True)
+        probe = os.path.join(target, ".write_probe")
+        with open(probe, "w") as f:
+            f.write("1")
+        os.remove(probe)
+        return preferred
+    except OSError as e:
+        print(f"[people] {preferred!r} เขียนไม่ได้ ({type(e).__name__}: {e}) "
+              f"-> ใช้ {fallback!r} แทน", flush=True)
+        return fallback
+
+
+STORE_DSN = _writable(os.environ.get("PEOPLE_STORE_DSN", "./data/people.db"),
+                      "/tmp/animalcountllm/people.db")
+
+STORE_ERROR: Optional[str] = None
+try:
+    store = PersonStore(STORE_DSN)
+    store.init_schema()
+except Exception as e:  # noqa: BLE001
+    STORE_ERROR = f"{type(e).__name__}: {e}"
+    print(f"[people] 🔴 เปิดฐานข้อมูลไม่ได้: {STORE_ERROR}", flush=True)
+    store = PersonStore("/tmp/people-fallback.db")
+    store.init_schema()
+
+llm = PersonLLM()
+
+# คีย์: ใช้ตัวเดียวกับฝั่งช้างเป็นค่าตั้งต้น แต่แยก env ไว้แล้ว
+# วันที่ทีมคุณสุชาติได้คีย์ของงานคนไปแล้วอยากถอนสิทธิ์ฝั่งช้าง จะได้ไม่ต้องแก้โค้ด
+API_KEY = (os.environ.get("PEOPLE_API_KEY") or os.environ.get("API_KEY", "")).strip()
+
+# ไม่เก็บภาพเป็นค่าเริ่มต้น · ดูเหตุผลใน people/store.py
+SAVE_IMAGES = os.environ.get("PEOPLE_SAVE_IMAGES", "none").lower()
+IMAGE_DIR = _writable(os.environ.get("PEOPLE_IMAGE_DIR", "./data/people-crops"),
+                      "/tmp/animalcountllm/people-crops", is_dir=True)
+
+# 🔴 กล่องจาก tracker มักรัดพอดีตัว แล้วตัดรองเท้ากับผมทิ้ง
+# ซึ่งเป็นสองอย่างที่เราถูกสั่งให้รายงาน · ขยายกรอบออก 8% ก่อนครอป
+# ตั้ง 0 ได้ถ้าปลายทางส่งกรอบที่เผื่อมาแล้ว
+BBOX_MARGIN = float(os.environ.get("PEOPLE_BBOX_MARGIN", "0.08"))
+
+# ⚠️ ค่านี้ยัง **ไม่ได้วัด** ว่าช่วยเรื่องความแม่นไหม
+# มีไว้กันอาการ provider ปฏิเสธภาพที่เล็กเกินไป (crop คนไกลๆ เหลือ 40x90 ได้)
+# ที่วัดไปแล้วฝั่งช้าง: prompt token เท่ากันหมดที่ 640x512 แปลว่าการขยายภาพ
+# ไม่ได้แปลว่าโมเดลได้ image token เพิ่มเสมอไป · อย่าเชื่อว่ายิ่งใหญ่ยิ่งแม่น
+# จนกว่าจะวัดกับ crop จริงจากไซต์
+MIN_CROP_PX = int(os.environ.get("PEOPLE_MIN_CROP_PX", "224"))
+
+# หนึ่งคน = หนึ่งครั้งที่ยิงโมเดล · ยิงขนานกันเพื่อไม่ให้ 5 คนใช้เวลา 5 เท่า
+# 4 เส้นพอ · มากกว่านี้ไปชนกับ rate limit ของ OpenRouter แทน
+WORKERS = int(os.environ.get("PEOPLE_WORKERS", "4"))
+
+print(f"[people] v{PEOPLE_VERSION} store={STORE_DSN} provider={llm.provider} "
+      f"model={llm.model} save_images={SAVE_IMAGES}", flush=True)
+
+
+def _auth(key: Optional[str]) -> None:
+    if API_KEY and key != API_KEY:
+        raise HTTPException(status_code=401, detail="bad or missing X-API-Key")
+
+
+def _iso(ts: float) -> str:
+    return datetime.fromtimestamp(ts, timezone.utc).isoformat()
+
+
+def _decode(b64: str, what: str) -> bytes:
+    try:
+        return base64.b64decode(b64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail=f"{what} decode failed")
+
+
+def _crop(frame_bytes: bytes, bbox: List[int]) -> Tuple[str, int, int, List[int]]:
+    """ครอปคนหนึ่งคนออกจากเฟรมเต็ม แล้วคืนเป็น base64 JPEG
+
+    รับ [x, y, w, h] หน่วยพิกเซล · กรอบที่ล้นขอบภาพถูกหนีบให้อยู่ในภาพ
+    ไม่ใช่โยน error เพราะ tracker คืนกรอบล้นขอบเป็นเรื่องปกติเวลาคนเดินออกเฟรม
+    """
+    from PIL import Image
+
+    with Image.open(io.BytesIO(frame_bytes)) as im:
+        im = im.convert("RGB")
+        W, H = im.size
+        x, y, w, h = (int(v) for v in bbox)
+        if w <= 0 or h <= 0:
+            raise ValueError(f"bbox กว้างหรือสูงไม่เป็นบวก: {bbox}")
+        mx, my = int(w * BBOX_MARGIN), int(h * BBOX_MARGIN)
+        x1, y1 = max(0, x - mx), max(0, y - my)
+        x2, y2 = min(W, x + w + mx), min(H, y + h + my)
+        if x2 <= x1 or y2 <= y1:
+            raise ValueError(f"bbox อยู่นอกภาพ {W}x{H}: {bbox}")
+        crop = im.crop((x1, y1, x2, y2))
+
+        if MIN_CROP_PX and min(crop.size) < MIN_CROP_PX:
+            scale = MIN_CROP_PX / min(crop.size)
+            crop = crop.resize((max(1, int(crop.width * scale)),
+                                max(1, int(crop.height * scale))),
+                               Image.LANCZOS)
+        buf = io.BytesIO()
+        crop.save(buf, format="JPEG", quality=90)
+        return (base64.b64encode(buf.getvalue()).decode(), crop.width, crop.height,
+                [x1, y1, x2, y2])
+
+
+def _size_of(raw: bytes) -> Tuple[int, int]:
+    """ขนาดภาพจากหัวไฟล์ ไม่ decode พิกเซล"""
+    from PIL import Image
+    with Image.open(io.BytesIO(raw)) as im:
+        return im.size
+
+
+def _save_crop(raw_b64: str, request_id: str, object_id: str,
+               status: str) -> Optional[str]:
+    """เก็บ crop ลงดิสก์เฉพาะตอนที่ตั้งใจให้เก็บ
+
+    none     ไม่เก็บเลย (ค่าเริ่มต้น)
+    degraded เก็บเฉพาะคนที่อ่านไม่ออก ซึ่งคือชุดที่มีค่าตอนดีบักจริงๆ
+    all      เก็บทุกคน · ใช้ตอนไล่บั๊กเท่านั้น อย่าเปิดค้างไว้บน prod
+    """
+    if not raw_b64:
+        return None
+    if SAVE_IMAGES == "none":
+        return None
+    if SAVE_IMAGES == "degraded" and status == "ok":
+        return None
+    if SAVE_IMAGES not in {"all", "degraded"}:
+        return None
+    try:
+        os.makedirs(IMAGE_DIR, exist_ok=True)
+        safe = "".join(c for c in object_id if c.isalnum() or c in "-_")[:64] or "obj"
+        p = os.path.join(IMAGE_DIR, f"{request_id}-{safe}.jpg")
+        with open(p, "wb") as f:
+            f.write(base64.b64decode(raw_b64))
+        return p
+    except (OSError, binascii.Error):
+        return None  # เก็บภาพไม่ได้ ไม่ควรทำให้ทั้ง request พัง
+
+
+def _model_info(res=None) -> ModelInfo:
+    return ModelInfo(
+        provider=llm.provider, name=llm.model,
+        prompt_version=prompt_p1.PROMPT_VERSION,
+        finish_reason=getattr(res, "finish_reason", None),
+        completion_tokens=getattr(res, "completion_tokens", None))
+
+
+# ---------------------------------------------------------------- endpoints
+@app.get("/healthz")
+def healthz():
+    """ต้องตอบได้แม้ของบางอย่างพัง · ไม่งั้นเห็นแค่ connection refused"""
+    return {"status": "ok" if not STORE_ERROR else "degraded",
+            "service": "smart-people-counting",
+            "version": PEOPLE_VERSION, "build": BUILD_NOTES,
+            "provider": llm.provider, "model": llm.model,
+            "prompt_version": prompt_p1.PROMPT_VERSION,
+            "max_objects": 16, "workers": WORKERS,
+            "bbox_margin": BBOX_MARGIN, "min_crop_px": MIN_CROP_PX,
+            "save_images": SAVE_IMAGES,
+            "store_path": STORE_DSN, "store_error": STORE_ERROR,
+            "auth_required": bool(API_KEY), "tracing": llm.tracing}
+
+
+@app.post("/v1/persons", response_model=PersonsOut)
+def post_persons(body: PersonsIn, x_api_key: Optional[str] = Header(default=None)):
+    _auth(x_api_key)
+    t_start = time.perf_counter()
+    request_id = str(uuid.uuid4())
+    now = time.time()
+    if body.ts:
+        try:
+            now = datetime.fromisoformat(body.ts.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            pass  # เวลาผิดรูปจากปลายทาง ใช้เวลาที่เรารับแทน ดีกว่าปฏิเสธทั้งก้อน
+
+    ids = [o.id for o in body.objects]
+    if len(set(ids)) != len(ids):
+        # id ซ้ำ = ปลายทางจับคู่คำตอบกลับไม่ได้ ตอบไปก็ไม่มีประโยชน์
+        raise HTTPException(status_code=400,
+                            detail=f"object id ซ้ำกันใน request เดียว: {ids}")
+
+    store.insert_request(request_id, body.camera_id, now, len(body.objects), body.note)
+
+    # ---- [1] เตรียมภาพของแต่ละคน ทำก่อนยิงโมเดลทั้งหมด
+    # decode เฟรมเต็มครั้งเดียว ไม่ใช่ครั้งละคน · เฟรม 1920x1080 สามคน
+    # = decode สามรอบโดยไม่จำเป็น
+    t_decode = time.perf_counter()
+    frame_bytes = _decode(body.frame_base64, "frame_base64") if body.frame_base64 else None
+
+    prepared: List[Tuple[ObjectIn, Optional[str], Optional[ImageInfo], str]] = []
+    for o in body.objects:
+        if o.image_base64:
+            raw = _decode(o.image_base64, f"objects[{o.id}].image_base64")
+            try:
+                w, h = _size_of(raw)
+            except Exception as e:  # noqa: BLE001
+                prepared.append((o, None, None, f"อ่านภาพไม่ได้: {type(e).__name__}"))
+                continue
+            prepared.append((o, o.image_base64, ImageInfo(w=w, h=h,
+                                                          source="object_image"), ""))
+        elif o.bbox is not None:
+            if frame_bytes is None:
+                prepared.append((o, None, None,
+                                 "ส่ง bbox มาแต่ไม่มี frame_base64 ใน request"))
+                continue
+            try:
+                b64, w, h, used = _crop(frame_bytes, o.bbox)
+            except Exception as e:  # noqa: BLE001
+                prepared.append((o, None, None, f"ครอปไม่ได้: {e}"))
+                continue
+            prepared.append((o, b64, ImageInfo(w=w, h=h, source="frame_bbox",
+                                               bbox_used=used), ""))
+        else:
+            prepared.append((o, None, None,
+                             "object นี้ไม่มีทั้ง image_base64 และ bbox"))
+    decode_ms = round((time.perf_counter() - t_decode) * 1000, 1)
+
+    # ทุก object พังตั้งแต่ชั้นภาพ = ปลายทางส่งของผิดรูปมาทั้งก้อน บอกไปตรงๆ 400
+    # ดีกว่าตอบ 200 ที่มีแต่ error ข้างใน ซึ่งปลายทางที่เช็คแค่ status code จะไม่เห็น
+    if all(p[1] is None for p in prepared):
+        raise HTTPException(status_code=400, detail="; ".join(
+            f"{p[0].id}: {p[3]}" for p in prepared))
+
+    # ---- [2] ยิงโมเดล หนึ่งคนหนึ่งครั้ง ขนานกัน
+    t_vlm = time.perf_counter()
+
+    def work(item):
+        o, b64, info, err = item
+        if b64 is None:
+            return o, None, info, err
+        h = hashlib.sha256(b64.encode()).hexdigest()[:32]
+        res = llm.describe(b64, o.id, info.w, info.h, body.camera_id, h)
+        return o, res, info, ""
+
+    if len(prepared) == 1:
+        results = [work(prepared[0])]
+    else:
+        with ThreadPoolExecutor(max_workers=min(WORKERS, len(prepared))) as pool:
+            results = list(pool.map(work, prepared))
+    vlm_wall_ms = round((time.perf_counter() - t_vlm) * 1000, 1)
+
+    # ---- [3] ประกอบคำตอบ + บันทึก
+    persons: List[PersonOut] = []
+    rows = []
+    vlm_sum = 0.0
+    # ภาพที่ยิงไปจริงของแต่ละคน · ใช้ตอนเก็บ crop ลงดิสก์ (ปกติปิดอยู่)
+    b64_by_id = {p[0].id: p[1] for p in prepared}
+    for o, res, info, prep_err in results:
+        if res is None:
+            # ภาพใช้ไม่ได้ตั้งแต่ต้น ยังไม่เคยถึงโมเดล
+            persons.append(PersonOut(id=o.id, status="error", reason=prep_err,
+                                     image=info, model=_model_info(), timing_ms=0.0))
+            rows.append({"request_id": request_id, "object_id": o.id,
+                         "camera_id": body.camera_id, "ts": now, "status": "error",
+                         "reason": prep_err, "latency_ms": 0.0,
+                         "prompt_version": prompt_p1.PROMPT_VERSION,
+                         "model_name": llm.model, "provider": llm.provider})
+            continue
+
+        vlm_sum += res.latency_ms
+        if res.usable:
+            n = normalize(res.data)
+            conf = round((n["gender_confidence"] + n["age_range_confidence"]
+                          + n["appearance_confidence"]) / 3, 3)
+            p = PersonOut(id=o.id, status="ok", overall_confidence=conf,
+                          image=info, model=_model_info(res),
+                          timing_ms=res.latency_ms, **n)
+        else:
+            # 🔴 โมเดลล่ม/ตอบไม่จบ = degraded ห้ามตอบเป็น unknown เฉยๆ
+            # unknown แปลว่า "ดูแล้วแต่ดูไม่ออก" ซึ่งเป็นคำตอบที่จบแล้ว
+            # degraded แปลว่า "ยังไม่ได้ดู ลองใหม่ได้" · สองอย่างนี้แก้คนละวิธี
+            # (บทเรียนตรงๆ จากฝั่งช้าง ที่ degraded เคยโดน provisional ทับ)
+            why = res.error or (f"โมเดลตอบไม่จบ (finish={res.finish_reason})"
+                                if res.finish_reason == "length" else "โมเดลตอบไม่เป็น JSON")
+            p = PersonOut(id=o.id, status="degraded", reason=why, image=info,
+                          model=_model_info(res), timing_ms=res.latency_ms)
+        persons.append(p)
+        rows.append({
+            "request_id": request_id, "object_id": o.id, "camera_id": body.camera_id,
+            "ts": now, "status": p.status,
+            "gender": p.gender, "gender_confidence": p.gender_confidence,
+            "age_range": p.age_range, "age_range_confidence": p.age_range_confidence,
+            "appearance": p.appearance.model_dump_json(),
+            "appearance_confidence": p.appearance_confidence,
+            "description": p.description, "overall_confidence": p.overall_confidence,
+            "reason": p.reason,
+            "image_w": info.w if info else None, "image_h": info.h if info else None,
+            "image_source": info.source if info else None,
+            "image_path": _save_crop(b64_by_id.get(o.id) or "", request_id, o.id,
+                                     p.status),
+            "llm_raw_response": res.raw or (res.error or ""),
+            "prompt_version": prompt_p1.PROMPT_VERSION,
+            "model_name": llm.model, "provider": llm.provider,
+            "finish_reason": res.finish_reason,
+            "completion_tokens": res.completion_tokens,
+            "latency_ms": res.latency_ms,
+        })
+
+    ok_n = sum(1 for p in persons if p.status == "ok")
+    status = "ok" if ok_n == len(persons) else ("degraded" if ok_n == 0 else "partial")
+    total_ms = round((time.perf_counter() - t_start) * 1000, 1)
+
+    store.insert_persons(rows)
+    store.finish_request(request_id, status, total_ms)
+
+    return PersonsOut(
+        request_id=request_id, camera_id=body.camera_id, received_at=_iso(now),
+        status=status, persons=persons,
+        summary={"objects_in": len(body.objects), "ok": ok_n,
+                 "degraded": sum(1 for p in persons if p.status == "degraded"),
+                 "error": sum(1 for p in persons if p.status == "error")},
+        model=_model_info(),
+        timing_ms={"decode": decode_ms, "vlm": vlm_wall_ms,
+                   "vlm_sum": round(vlm_sum, 1), "total": total_ms},
+    )
+
+
+@app.get("/v1/persons/{request_id}")
+def get_persons(request_id: str, x_api_key: Optional[str] = Header(default=None)):
+    _auth(x_api_key)
+    row = store.get_request(request_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="unknown request_id")
+    return JSONResponse(row)
+
+
+@app.post("/v1/persons/{request_id}/{object_id}/truth")
+def post_truth(request_id: str, object_id: str, body: PersonTruthIn,
+               x_api_key: Optional[str] = Header(default=None)):
+    """ค่าที่คนตรวจแล้ว · เก็บตอนนี้เท่านั้น ย้อนไปเก็บทีหลังไม่ได้"""
+    _auth(x_api_key)
+    if not store.save_truth(request_id, object_id, body.gender, body.age_range,
+                            body.reviewer, body.comment):
+        raise HTTPException(status_code=404,
+                            detail="ไม่รู้จัก request_id คู่กับ object_id นี้")
+    return {"ok": True, "request_id": request_id, "object_id": object_id}
+
+
+@app.post("/v1/maintenance/prune")
+def prune(x_api_key: Optional[str] = Header(default=None)):
+    """ลบข้อมูลที่เกินอายุ · เรียกจาก cron ข้างนอก ไม่ใช่ background task ในนี้"""
+    _auth(x_api_key)
+    return store.prune(int(os.environ.get("PEOPLE_RETENTION_DAYS", "7")))
+
+
+# หน้าเว็บทดสอบ · ไฟล์นิ่งล้วน ยิง POST /people/v1/persons เหมือน client ทั่วไป
+# และโดน 401 เหมือนใครก็ตามถ้าไม่ใส่คีย์ · ห้ามให้มันข้าม auth
+_UI_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui")
+if os.path.isdir(_UI_DIR):
+    app.mount("/verify", StaticFiles(directory=_UI_DIR, html=True), name="people-verify")
+else:
+    print(f"[people] ไม่พบ {_UI_DIR} · /people/verify จะตอบ 404", flush=True)

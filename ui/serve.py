@@ -24,7 +24,7 @@ import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PROXY_PREFIXES = ("/v1/", "/healthz", "/docs", "/openapi.json")
+PROXY_PREFIXES = ("/v1/", "/healthz", "/docs", "/openapi.json", "/people")
 
 # X-API-Key ต้องผ่านไปถึง API ไม่งั้น auth พังทั้งที่หน้าเว็บส่งมาถูก
 FORWARD_HEADERS = ("content-type", "x-api-key", "accept")

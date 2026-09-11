@@ -192,12 +192,16 @@ class PersonStore:
         return out
 
     def by_client_ref(self, client_request_id: str) -> List[Dict[str, Any]]:
-        """หา request จากเลขอ้างอิงของปลายทาง · ใหม่สุดก่อน"""
+        """หา request จากเลขอ้างอิงของปลายทาง · ใหม่สุดก่อน
+
+        ดูทั้งคอลัมน์ `client_request_id` และ `note` เพราะปลายทางส่งเลขอ้างอิง
+        มาในช่อง note ได้ (และทีมคุณสุชาติจะส่งมาแบบนั้น)
+        """
         with self._lock:
             rows = self._conn.execute(
                 "SELECT request_id, ts, status FROM person_requests"
-                " WHERE client_request_id=? ORDER BY ts DESC LIMIT 20",
-                (client_request_id,)).fetchall()
+                " WHERE client_request_id=? OR note=? ORDER BY ts DESC LIMIT 20",
+                (client_request_id, client_request_id)).fetchall()
         return [dict(r) for r in rows]
 
     def recent(self, camera_id: str, limit: int = 50) -> List[Dict[str, Any]]:

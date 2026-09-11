@@ -51,7 +51,7 @@ from .store import PersonStore
 # 🔴 เลขนี้ต้องขยับทุกครั้งที่ **พฤติกรรมของ endpoint ฝั่งคน** เปลี่ยน
 # แยกจาก APP_VERSION ของฝั่งช้างโดยตั้งใจ สองงานนี้จะ deploy ไปด้วยกันก็จริง
 # แต่ปลายทางคนละทีม ต้องตอบได้ว่า "ของที่คุณเรียกอยู่เวอร์ชันอะไร" แยกกัน
-PEOPLE_VERSION = "0.4.0"
+PEOPLE_VERSION = "0.5.0"
 BUILD_NOTES = ("person attributes (gender, age band, appearance) via VLM"
                " · /v1/persons prompt p1 · /v1/frames prompt f1")
 
@@ -169,6 +169,19 @@ def explain_validation_error(request: Request, exc: RequestValidationError):
     return JSONResponse(status_code=422,
                         content=jsonable_encoder({"detail": errors,
                                                   **({"hint": hint} if hint else {})}))
+
+
+def _ref_of(body) -> Optional[str]:
+    """เลขอ้างอิงของปลายทาง · `client_request_id` ก่อน ไม่มีค่อยใช้ `note`
+
+    ทีมคุณสุชาติจะส่งเลขอ้างอิงมาในช่อง `note` ซึ่งมีอยู่แล้วใน spec ฝั่งช้าง
+    เขาเลยไม่ต้องแก้ body ที่ส่งอยู่ · ใครอยากใช้ช่องที่ชื่อตรงกว่าก็ส่ง
+    `client_request_id` มาได้ ตัวนั้นชนะ
+
+    🔴 ไม่ตีความ ไม่ trim ไม่ตัด ไม่แปลง · คืนตัวเดิมเป๊ะ
+    ของที่ปลายทางเอาไปเทียบว่า "ใช่ของฉันไหม" ห้ามถูกเราแตะระหว่างทาง
+    """
+    return body.client_request_id or body.note
 
 
 def _direction_counts(persons: List[PersonOut]) -> dict:
@@ -441,9 +454,8 @@ def post_persons(body: PersonsIn, x_api_key: Optional[str] = Header(default=None
     store.finish_request(request_id, status, total_ms)
 
     return PersonsOut(
-        request_id=request_id, client_request_id=body.client_request_id,
-        note=body.note, camera_id=body.camera_id, received_at=_iso(now),
-        status=status, persons=persons,
+        request_id=request_id, ref=_ref_of(body), camera_id=body.camera_id,
+        received_at=_iso(now), status=status, persons=persons,
         summary={"objects_in": len(body.objects), "ok": ok_n,
                  "degraded": sum(1 for p in persons if p.status == "degraded"),
                  "error": sum(1 for p in persons if p.status == "error"),
@@ -562,9 +574,8 @@ def post_frame(body: PeopleFrameIn, x_api_key: Optional[str] = Header(default=No
     store.finish_request(request_id, status, total_ms)
 
     return PersonsOut(
-        request_id=request_id, client_request_id=body.client_request_id,
-        note=body.note, camera_id=body.camera_id, received_at=_iso(now),
-        status=status, persons=persons, reason=why,
+        request_id=request_id, ref=_ref_of(body), camera_id=body.camera_id,
+        received_at=_iso(now), status=status, persons=persons, reason=why,
         # objects_in = 0 เพราะเส้นนี้ไม่มีใครถูกส่งมาให้ตรวจ · people_found คือของจริง
         summary={"objects_in": 0, "ok": len(persons), "degraded": 0, "error": 0,
                  "people_found": len(persons), **_direction_counts(persons)},
@@ -591,8 +602,7 @@ def get_by_client_ref(client_request_id: str,
         raise HTTPException(status_code=404,
                             detail="ไม่เคยเห็น client_request_id นี้")
     latest = store.get_request(rows[0]["request_id"])
-    return JSONResponse({"client_request_id": client_request_id,
-                         "matches": len(rows),
+    return JSONResponse({"ref": client_request_id, "matches": len(rows),
                          "latest": latest})
 
 

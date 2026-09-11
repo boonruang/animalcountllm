@@ -13,6 +13,7 @@
 import base64
 import io
 import os
+import uuid
 
 os.environ.setdefault("LANGSMITH_TRACING", "false")
 os.environ["PEOPLE_STORE_DSN"] = "./data/people-contract-test.db"
@@ -26,7 +27,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import people.main as pm  # noqa: E402
 
-TOP = {"request_id", "client_request_id", "note", "camera_id", "received_at",
+TOP = {"request_id", "ref", "camera_id", "received_at",
        "status", "reason", "persons", "summary", "model", "timing_ms"}
 PERSON = {"id", "status", "where", "direction", "direction_confidence",
           "gender", "gender_confidence", "age_range",
@@ -358,42 +359,66 @@ def test_frames_บอกว่าภาพที่อ่านคือเฟ�
 # ---------------------------------------------------------------- อ้างอิงกลับ
 # "ผู้ใช้จะรู้ได้ยังไงว่า response เป็นของตัวเอง" · คำถามของ Toy 2026-09-11
 
-def test_client_request_id_คืนกลับเป๊ะทั้งสองเส้น():
+def test_เลขอ้างอิงส่งมาใน_note_แล้วคืนกลับใน_ref():
+    """🔴 ทางที่ทีมคุณสุชาติจะใช้จริง (Toy เคาะ 2026-09-11)
+
+    เขาส่งเลขอ้างอิงมาในช่อง `note` ซึ่งมีอยู่แล้วใน spec ฝั่งช้าง
+    ไม่ต้องแก้ body ที่ส่งอยู่เลย แล้วรับกลับที่ `ref`
+    """
     ref = "iplus-2026-09-11-000123"
-    d = client.post("/v1/persons", json={
-        "camera_id": "c", "client_request_id": ref, "note": "รอบบ่าย",
-        "objects": [{"id": "ID-1", "image_base64": _png()}]}).json()
-    assert d["client_request_id"] == ref
-    assert d["note"] == "รอบบ่าย"
-
     f = client.post("/v1/frames", json={
-        "camera_id": "c", "image_base64": _png(), "client_request_id": ref}).json()
-    assert f["client_request_id"] == ref
+        "camera_id": "cam-01", "image_base64": _png(), "note": ref}).json()
+    assert f["ref"] == ref
+
+    d = client.post("/v1/persons", json={
+        "camera_id": "c", "note": ref,
+        "objects": [{"id": "ID-1", "image_base64": _png()}]}).json()
+    assert d["ref"] == ref
 
 
-def test_ไม่ส่ง_client_request_id_มาก็ได้_เป็น_null():
+def test_client_request_id_ชนะ_note_ถ้าส่งมาทั้งคู่():
+    """ช่องที่ชื่อตรงกว่าต้องชนะ ไม่ใช่เอาอันหลังทับเงียบๆ"""
+    d = client.post("/v1/frames", json={
+        "camera_id": "c", "image_base64": _png(),
+        "client_request_id": "ตัวจริง", "note": "ข้อความธรรมดา"}).json()
+    assert d["ref"] == "ตัวจริง"
+
+
+def test_ไม่ส่งเลขอ้างอิงมาก็ได้_ref_เป็น_null():
     """ของเดิมที่ยิงอยู่แล้วต้องไม่พังเพราะฟิลด์ใหม่"""
     d = _post([{"id": "ID-1", "image_base64": _png()}])
-    assert d["client_request_id"] is None and d["note"] is None
+    assert d["ref"] is None
+
+
+def test_ref_ต้องคืนตัวเดิมเป๊ะ_ห้ามแตะ():
+    """ปลายทางเอาไปเทียบว่า 'ใช่ของฉันไหม' · trim หรือแปลงอะไรสักอย่าง = เทียบไม่ตรง"""
+    weird = "  ref/ที่มี ช่องว่าง+อักขระ_แปลก#42  "
+    d = client.post("/v1/frames", json={
+        "camera_id": "c", "image_base64": _png(), "note": weird}).json()
+    assert d["ref"] == weird
 
 
 def test_ตามผลด้วยเลขอ้างอิงของตัวเองได้():
     """เคสจริง: ยิงไปแล้ว timeout ไม่เคยเห็น request_id ของเรา"""
-    ref = "ref-timeout-case"
+    ref = f"ref-timeout-{uuid.uuid4()}"
+    # ส่งมาทาง note ซึ่งเป็นทางที่ปลายทางจะใช้จริง · lookup ต้องหาเจอเหมือนกัน
     client.post("/v1/frames", json={"camera_id": "c", "image_base64": _png(),
-                                    "client_request_id": ref})
+                                    "note": ref})
     r = client.get(f"/v1/persons/by-ref/{ref}")
     assert r.status_code == 200
     j = r.json()
-    assert j["client_request_id"] == ref and j["matches"] >= 1
+    assert j["ref"] == ref and j["matches"] >= 1
     assert j["latest"]["request_id"]
     assert client.get("/v1/persons/by-ref/ไม่เคยส่ง").status_code == 404
 
 
 def test_ส่ง_ref_ซ้ำ_ได้หลายผล_และบอกว่ากี่อัน():
     """เราไม่การันตีว่าไม่ซ้ำ เพราะเลขนี้ไม่ใช่ของเรา · ต้องบอกตรงๆ ไม่ใช่แกล้งเลือกให้"""
-    ref = "ref-ซ้ำ"
+    # 🔴 ref ต้องไม่ซ้ำกับการรันครั้งก่อน · ฐานข้อมูลเทสต์อยู่ข้ามรอบ
+    # เขียนครั้งแรกด้วยค่าคงที่ แล้วมันเขียวรอบแรกแล้วตกรอบสอง (assert 6 == 2)
+    # ซึ่งแย่กว่าตกตั้งแต่แรก เพราะรอบแรกมันบอกว่าผ่าน
+    ref = f"ref-ซ้ำ-{uuid.uuid4()}"
     for _ in range(2):
         client.post("/v1/frames", json={"camera_id": "c", "image_base64": _png(),
-                                        "client_request_id": ref})
+                                        "note": ref})
     assert client.get(f"/v1/persons/by-ref/{ref}").json()["matches"] == 2

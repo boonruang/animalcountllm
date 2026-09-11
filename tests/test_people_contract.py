@@ -28,7 +28,8 @@ import people.main as pm  # noqa: E402
 
 TOP = {"request_id", "camera_id", "received_at", "status", "reason", "persons",
        "summary", "model", "timing_ms"}
-PERSON = {"id", "status", "where", "gender", "gender_confidence", "age_range",
+PERSON = {"id", "status", "where", "direction", "direction_confidence",
+          "gender", "gender_confidence", "age_range",
           "age_range_confidence", "appearance", "appearance_confidence",
           "description", "overall_confidence", "reason", "image", "model",
           "timing_ms"}
@@ -38,7 +39,8 @@ APPEARANCE = {"skin_tone", "build", "height", "hair_length", "hair_color",
 GARMENT = {"type", "color", "secondary_color", "pattern"}
 MODEL = {"provider", "name", "prompt_version", "finish_reason", "completion_tokens"}
 TIMING = {"decode", "vlm", "vlm_sum", "total"}
-SUMMARY = {"objects_in", "ok", "degraded", "error"}
+SUMMARY = {"objects_in", "ok", "degraded", "error",
+           "direction_in", "direction_out", "direction_unknown"}
 
 client = TestClient(pm.app)
 
@@ -69,7 +71,11 @@ def test_รูปของ_response_ตรงกับที่ออกแบ�
     d = _post([{"id": "ID-1", "image_base64": _png()}])
     assert set(d) == TOP
     assert set(d["summary"]) == SUMMARY
-    assert set(d["model"]) == MODEL
+    # model ถูกซ่อนเป็น null โดยค่าเริ่มต้น · รูปของมันยังต้องถูกล็อกไว้
+    # เพราะพอเปิด PEOPLE_EXPOSE_MODEL=true มันจะโผล่มาเป็นรูปนี้
+    assert d["model"] is None
+    from people.schemas import ModelInfo
+    assert set(ModelInfo.model_fields) == MODEL
     assert set(d["timing_ms"]) == TIMING
     p = d["persons"][0]
     assert set(p) == PERSON
@@ -77,6 +83,29 @@ def test_รูปของ_response_ตรงกับที่ออกแบ�
     for part in ("top", "outer", "bottom", "footwear"):
         assert set(p["appearance"][part]) == GARMENT
     assert set(p["image"]) == {"w", "h", "source", "bbox_used"}
+
+
+def test_model_ถูกซ่อนเป็น_null_โดยค่าเริ่มต้น():
+    """🔴 ปลายทางไม่ต้องรู้ว่าเราใช้โมเดลอะไร (Toy สั่ง 2026-09-11)
+
+    คีย์ต้องยังอยู่ · รูป response ที่เปลี่ยนตามค่า env คือของที่ทำให้ปลายทาง
+    parse พังแบบหาสาเหตุไม่เจอ
+    """
+    d = _post([{"id": "ID-1", "image_base64": _png()}])
+    assert "model" in d and d["model"] is None
+    assert "model" in d["persons"][0] and d["persons"][0]["model"] is None
+    # และห้ามหลุดทางหน้า healthz ซึ่งเปิดได้โดยไม่ต้องมีคีย์
+    h = client.get("/healthz").json()
+    assert h["model"] is None and h["provider"] is None
+
+
+def test_direction_มีค่าเสมอและยอดรวมต้องครบ():
+    """in + out + unknown ต้องเท่าจำนวนคนเสมอ ไม่งั้นปลายทางบวกยอดแล้วขาด"""
+    d = _post([{"id": "a", "image_base64": _png()}, {"id": "b", "image_base64": _png()}])
+    s = d["summary"]
+    assert s["direction_in"] + s["direction_out"] + s["direction_unknown"] == 2
+    for p in d["persons"]:
+        assert p["direction"] in {"in", "out", "unknown"}
 
 
 def test_ชนิดของค่าถูกต้อง():
@@ -204,7 +233,10 @@ def test_ยิงผลกลับมาดูได้ด้วย_request_id
 def test_healthz_ตอบได้แม้โมเดลใช้ไม่ได้():
     h = client.get("/healthz").json()
     assert h["service"] == "smart-people-counting"
-    assert h["prompt_version"] == "p1"
+    # ซ่อนที่ response แล้วแต่ยังโชว์ที่ healthz = ซ่อนไม่สำเร็จ
+    # หน้านี้เปิดได้โดยไม่ต้องมีคีย์ด้วยซ้ำ
+    assert h["prompt_version"] is None
+    assert h["frame_prompt_version"] is None
     # ค่าเริ่มต้นต้องไม่เก็บภาพคน · ถ้าวันหนึ่งมีคนเปลี่ยน default เทสต์นี้จะดัง
     assert h["save_images"] == "none"
 

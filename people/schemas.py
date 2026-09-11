@@ -68,6 +68,21 @@ Carrying = Literal["backpack", "shoulder_bag", "handbag", "tote", "shopping_bag"
 
 Sleeve = Literal["sleeveless", "short", "long", "unknown"]
 
+# 🔴 ทิศ เข้า/ออก · Toy สั่ง 2026-09-11
+#
+# มาจาก **คนคนนั้นหันหน้าไปทางไหนในเฟรมนี้เฟรมเดียว** เท่านั้น
+#   in  = หันหน้าเข้าหากล้อง (เดินเข้าอาคาร)
+#   out = เห็นด้านหลัง (เดินออก)
+#   unknown = หันข้าง โดนบังครึ่งตัว หรือดูไม่ออก
+#
+# ⚠️ **หันหน้า ไม่เท่ากับ กำลังเดินไปทางนั้น** คนยืนคุยโทรศัพท์หันหน้าเข้ากล้อง
+# ได้โดยไม่ได้เข้าไปไหน คนเดินออกแล้วหันกลับมามองข้างหลังก็ได้ ภาพนิ่งใบเดียว
+# แยกสองอย่างนี้ไม่ได้ · ถ้าปลายทางต้องการ "เข้ากี่คน ออกกี่คน" ที่เชื่อถือได้จริง
+# ต้องนับจาก track ที่ข้ามเส้นในวิดีโอ ซึ่งระบบของทีมคุณสุชาติทำอยู่แล้ว (เห็น
+# "เข้า 11 ออก 5" บนหน้าจอเขาใน iplus_sample1) ค่าที่เราให้เป็นการอ่านจากท่าทาง
+# ในภาพนิ่ง ใช้ประกอบได้ ใช้แทนกันไม่ได้
+Direction = Literal["in", "out", "unknown"]
+
 PersonStatus = Literal["ok", "degraded", "error"]
 RequestStatus = Literal["ok", "partial", "degraded", "error"]
 
@@ -236,6 +251,10 @@ class PersonOut(BaseModel):
     y=998 บนภาพสูง 628 px · ตำแหน่งที่โมเดลบอกเป็นคำพูดใช้ได้ ที่บอกเป็นตัวเลขใช้ไม่ได้
     """
 
+    direction: Direction = "unknown"
+    """เข้า/ออก จากทิศที่หันหน้าในเฟรมนี้ · อ่านคำเตือนที่ Direction ก่อนเอาไปนับยอด"""
+    direction_confidence: float = Field(0.0, ge=0.0, le=1.0)
+
     gender: Gender = "unknown"
     gender_confidence: float = Field(0.0, ge=0.0, le=1.0)
 
@@ -254,7 +273,15 @@ class PersonOut(BaseModel):
     'โมเดลล่ม' กับ 'ภาพเบลอจนดูไม่ออก' ซึ่งแก้คนละวิธี"""
 
     image: Optional[ImageInfo] = None
-    model: ModelInfo
+
+    model: Optional[ModelInfo] = None
+    """🔴 เป็น null เสมอ เว้นแต่ตั้ง PEOPLE_EXPOSE_MODEL=true (Toy สั่ง 2026-09-11)
+
+    ปลายทางไม่ต้องรู้ว่าเราใช้โมเดลอะไร ของเจ้าไหน prompt เวอร์ชันไหน
+    **คีย์ยังอยู่ ไม่ได้หายไป** รูป response จะได้ไม่เปลี่ยนตามค่า env
+    ซึ่งเป็นสิ่งที่ทำให้ปลายทาง parse พังแบบหาสาเหตุไม่เจอ
+    ของจริงยังเก็บครบในฐานข้อมูลฝั่งเรา ไล่ดูย้อนหลังได้เหมือนเดิม"""
+
     timing_ms: float
 
 
@@ -277,5 +304,7 @@ class PersonsOut(BaseModel):
 
     persons: List[PersonOut]
     summary: Dict[str, int]
-    model: ModelInfo
+    model: Optional[ModelInfo] = None
+    """null เว้นแต่ PEOPLE_EXPOSE_MODEL=true · ดูเหตุผลที่ PersonOut.model"""
+
     timing_ms: Dict[str, float]

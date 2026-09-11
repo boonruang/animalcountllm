@@ -95,3 +95,16 @@ def test_ห้ามเดาแทนโมเดล():
     assert n["age_range"] == "unknown"
     assert n["description"] == ""
     assert n["gender_confidence"] == 0.0
+
+
+def test_direction_นอกชุดเป็น_unknown_ไม่ใช่เดาความหมาย():
+    """🔴 ห้ามแปลง entering/เข้า/towards ให้เอง
+
+    ตัวเลขเข้าออกเป็นของที่ปลายทางเอาไปนับ เดาผิดหนึ่งคนคือยอดผิดหนึ่งคน
+    โดยไม่มีใครเห็น · ถ้าโมเดลตอบนอกชุดบ่อย ให้ไปแก้ prompt
+    """
+    assert normalize({"direction": "entering"})["direction"] == "unknown"
+    assert normalize({"direction": "เข้า"})["direction"] == "unknown"
+    assert normalize({"direction": "IN"})["direction"] == "in"
+    assert normalize({})["direction"] == "unknown"
+    assert normalize({})["direction_confidence"] == 0.0

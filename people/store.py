@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS persons (
   camera_id         TEXT NOT NULL,
   ts                REAL NOT NULL,
   status            TEXT,
+  direction         TEXT, direction_confidence REAL,
   gender            TEXT, gender_confidence REAL,
   age_range         TEXT, age_range_confidence REAL,
   appearance        TEXT,          -- JSON ทั้งก้อน
@@ -79,7 +80,24 @@ class PersonStore:
     def init_schema(self) -> None:
         with self._lock:
             self._conn.executescript(SCHEMA)
+            self._migrate()
             self._conn.commit()
+
+    def _migrate(self) -> None:
+        """เติมคอลัมน์ที่เพิ่มทีหลังให้ตารางเก่า
+
+        🔴 `CREATE TABLE IF NOT EXISTS` ไม่แตะตารางที่มีอยู่แล้ว ตารางเก่าจึงยังขาด
+        คอลัมน์ใหม่ แล้ว INSERT พังทุกแถวด้วย "no such column" ซึ่งบนเครื่อง dev
+        จะเจอทันที แต่บน App Platform จะไม่เจอเลยเพราะไฟล์หายทุก deploy อยู่แล้ว
+        **บั๊กที่ prod ไม่มีวันเจอแต่ dev เจอตลอด คือบั๊กที่จะถูกมองข้าม**
+        เลยเติมให้เองตรงนี้ ไม่ต้องรอให้ใครไปลบไฟล์ทิ้ง
+        """
+        have = {r["name"] for r in
+                self._conn.execute("PRAGMA table_info(persons)").fetchall()}
+        for col, decl in (("direction", "TEXT"), ("direction_confidence", "REAL")):
+            if col not in have:
+                self._conn.execute(f"ALTER TABLE persons ADD COLUMN {col} {decl}")
+                print(f"[people] migrate: เพิ่มคอลัมน์ persons.{col}", flush=True)
 
     # ------------------------------------------------------------ write
     def insert_request(self, request_id: str, camera_id: str, ts: float,
@@ -105,6 +123,7 @@ class PersonStore:
         if not rows:
             return
         cols = ("request_id", "object_id", "camera_id", "ts", "status",
+                "direction", "direction_confidence",
                 "gender", "gender_confidence", "age_range", "age_range_confidence",
                 "appearance", "appearance_confidence", "description",
                 "overall_confidence", "reason", "image_w", "image_h", "image_source",
@@ -161,8 +180,8 @@ class PersonStore:
     def recent(self, camera_id: str, limit: int = 50) -> List[Dict[str, Any]]:
         with self._lock:
             rows = self._conn.execute(
-                "SELECT object_id, ts, status, gender, age_range, description,"
-                " overall_confidence FROM persons WHERE camera_id=?"
+                "SELECT object_id, ts, status, direction, gender, age_range,"
+                " description, overall_confidence FROM persons WHERE camera_id=?"
                 " ORDER BY ts DESC LIMIT ?", (camera_id, int(limit))).fetchall()
         return [dict(r) for r in rows]
 

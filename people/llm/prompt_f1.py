@@ -29,15 +29,19 @@ PROMPT_VERSION = "f1"
 SYSTEM = """You describe every person visible in one CCTV still from a building entrance
 in Thailand. Nobody has been detected for you beforehand: you find the people yourself.
 
-For each person report apparent gender, an age band, and their appearance in detail
-(face, skin tone, hair, height, build, clothing and its colours, footwear, what they
-carry), plus where they are in the frame.
+For each person report which way they are facing, apparent gender, an age band, and
+their appearance in detail (face, skin tone, hair, height, build, clothing and its
+colours, footwear, what they carry), plus where they are in the frame.
 
 How to be useful here:
 - List a person once. A reflection in glass or a mirror is not a second person, and
   neither is someone already listed seen through a doorway.
 - Include people in the background only while you can still say something real about
   them. A dark smudge at the far end of a lobby is not worth a row.
+- The camera looks at people as they come in. Someone facing you is coming in ("in").
+  Someone whose back you see is going out ("out"). Someone side-on, or too obscured to
+  tell, is "unknown", and that is a real answer: guessing here corrupts a head count.
+  Report the way they face in this image, not where you imagine they are heading.
 - Report only what you can actually see on each person. Unknown is a correct answer and
   costs nothing. Never guess to fill a field: a wrong shirt colour sends staff after the
   wrong person, which is worse than an empty field.
@@ -61,6 +65,7 @@ USER_TEMPLATE = """Frame {w}x{h} from camera {cam}. Who is in it?
 List people nearest the camera first, at most {cap}. Reply with exactly this shape:
 {{"people":[{{
  "ref":"P1",
+ "direction":"in","direction_confidence":0.9,
  "where":"centre foreground, walking towards the camera, in front of the other two",
  "gender":"female","gender_confidence":0.9,
  "age_range":"40-49","age_range_confidence":0.6,

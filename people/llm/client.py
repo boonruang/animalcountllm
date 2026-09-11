@@ -24,6 +24,7 @@ from . import prompt_f1, prompt_p1
 # เคยมีบั๊กแนวนี้ฝั่งช้าง: `unstable` อยู่ใน schema และในเอกสารตั้งแต่วันแรก
 # แต่โค้ดไม่เคยสร้างมันเลย เพราะสองที่นั้นไม่ได้ผูกกัน
 _GENDER = {"male", "female", "unknown"}
+_DIRECTION = {"in", "out", "unknown"}
 _AGE = {"0-12", "13-19", "20-29", "30-39", "40-49", "50-59", "60+", "unknown"}
 
 
@@ -294,6 +295,10 @@ def normalize(data: Dict[str, Any]) -> Dict[str, Any]:
         distinctive=str(ap_raw.get("distinctive") or "")[:200],
     )
     return {
+        # 🔴 ค่านอกชุดเป็น unknown เหมือนทุกช่อง · ห้ามแปลง "entering"/"เข้า" ให้เอง
+        # ถ้าโมเดลตอบนอกชุดบ่อย ให้ไปแก้ prompt ไม่ใช่มาเดาความหมายตรงนี้
+        "direction": _pick(data.get("direction"), _DIRECTION),
+        "direction_confidence": _conf(data.get("direction_confidence")),
         "gender": _pick(data.get("gender"), _GENDER),
         "gender_confidence": _conf(data.get("gender_confidence")),
         "age_range": _pick(data.get("age_range"), _AGE),

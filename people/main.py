@@ -50,7 +50,7 @@ from .store import PersonStore
 # 🔴 เลขนี้ต้องขยับทุกครั้งที่ **พฤติกรรมของ endpoint ฝั่งคน** เปลี่ยน
 # แยกจาก APP_VERSION ของฝั่งช้างโดยตั้งใจ สองงานนี้จะ deploy ไปด้วยกันก็จริง
 # แต่ปลายทางคนละทีม ต้องตอบได้ว่า "ของที่คุณเรียกอยู่เวอร์ชันอะไร" แยกกัน
-PEOPLE_VERSION = "0.2.1"
+PEOPLE_VERSION = "0.3.0"
 BUILD_NOTES = ("person attributes (gender, age band, appearance) via VLM"
                " · /v1/persons prompt p1 · /v1/frames prompt f1")
 
@@ -123,6 +123,13 @@ WORKERS = int(os.environ.get("PEOPLE_WORKERS", "4"))
 # แล้วเสียทั้งเฟรม · สิบสองคนแรกที่ใกล้กล้องที่สุด มีค่ากว่าสามสิบคนที่ตอบไม่จบ
 FRAME_MAX_PEOPLE = int(os.environ.get("PEOPLE_FRAME_MAX_PEOPLE", "12"))
 
+# 🔴 ปลายทางไม่ต้องรู้ว่าเราใช้โมเดลอะไร ของเจ้าไหน prompt เวอร์ชันไหน
+# (Toy สั่ง 2026-09-11) · คีย์ model ยังอยู่ในคำตอบแต่เป็น null
+# **ไม่ถอดคีย์ทิ้ง** รูป response ที่เปลี่ยนตามค่า env คือของที่ทำให้ปลายทาง
+# parse พังแบบหาสาเหตุไม่เจอ · ของจริงยังเก็บครบในฐานข้อมูล ไล่ย้อนหลังได้เหมือนเดิม
+# เปิดดูตอน dev ด้วย PEOPLE_EXPOSE_MODEL=true
+EXPOSE_MODEL = os.environ.get("PEOPLE_EXPOSE_MODEL", "false").lower() == "true"
+
 print(f"[people] v{PEOPLE_VERSION} store={STORE_DSN} provider={llm.provider} "
       f"model={llm.model} save_images={SAVE_IMAGES}", flush=True)
 
@@ -161,6 +168,18 @@ def explain_validation_error(request: Request, exc: RequestValidationError):
     return JSONResponse(status_code=422,
                         content=jsonable_encoder({"detail": errors,
                                                   **({"hint": hint} if hint else {})}))
+
+
+def _direction_counts(persons: List[PersonOut]) -> dict:
+    """เข้ากี่คน ออกกี่คน ไม่รู้กี่คน · สามตัวรวมกันต้องเท่าจำนวนคนเสมอ
+
+    🔴 `direction_unknown` ต้องอยู่ในคำตอบเสมอ ห้ามซ่อน
+    ปลายทางที่เห็นแต่ in กับ out จะเอาไปบวกเป็นยอดรวมแล้วหายไปเงียบๆ ว่าอีกกี่คน
+    ที่เราบอกไม่ได้ · ตัวเลขที่ไม่ครบแต่ดูครบ แย่กว่าตัวเลขที่บอกว่าตัวเองไม่ครบ
+    """
+    return {"direction_in": sum(1 for p in persons if p.direction == "in"),
+            "direction_out": sum(1 for p in persons if p.direction == "out"),
+            "direction_unknown": sum(1 for p in persons if p.direction == "unknown")}
 
 
 def _auth(key: Optional[str]) -> None:
@@ -245,7 +264,9 @@ def _save_crop(raw_b64: str, request_id: str, object_id: str,
         return None  # เก็บภาพไม่ได้ ไม่ควรทำให้ทั้ง request พัง
 
 
-def _model_info(res=None) -> ModelInfo:
+def _model_info(res=None) -> Optional[ModelInfo]:
+    if not EXPOSE_MODEL:
+        return None
     return ModelInfo(
         provider=llm.provider, name=llm.model,
         prompt_version=prompt_p1.PROMPT_VERSION,
@@ -260,9 +281,12 @@ def healthz():
     return {"status": "ok" if not STORE_ERROR else "degraded",
             "service": "smart-people-counting",
             "version": PEOPLE_VERSION, "build": BUILD_NOTES,
-            "provider": llm.provider, "model": llm.model,
-            "prompt_version": prompt_p1.PROMPT_VERSION,
-            "frame_prompt_version": prompt_f1.PROMPT_VERSION,
+            # 🔴 ซ่อนที่ response แล้วแต่ยังโชว์ที่นี่ = ซ่อนไม่สำเร็จ
+            # หน้า /people/healthz เปิดได้โดยไม่ต้องมีคีย์ด้วยซ้ำ
+            "provider": llm.provider if EXPOSE_MODEL else None,
+            "model": llm.model if EXPOSE_MODEL else None,
+            "prompt_version": prompt_p1.PROMPT_VERSION if EXPOSE_MODEL else None,
+            "frame_prompt_version": prompt_f1.PROMPT_VERSION if EXPOSE_MODEL else None,
             "max_objects": 16, "workers": WORKERS,
             "frame_max_people": FRAME_MAX_PEOPLE,
             "bbox_margin": BBOX_MARGIN, "min_crop_px": MIN_CROP_PX,
@@ -388,6 +412,7 @@ def post_persons(body: PersonsIn, x_api_key: Optional[str] = Header(default=None
         rows.append({
             "request_id": request_id, "object_id": o.id, "camera_id": body.camera_id,
             "ts": now, "status": p.status,
+            "direction": p.direction, "direction_confidence": p.direction_confidence,
             "gender": p.gender, "gender_confidence": p.gender_confidence,
             "age_range": p.age_range, "age_range_confidence": p.age_range_confidence,
             "appearance": p.appearance.model_dump_json(),
@@ -418,7 +443,10 @@ def post_persons(body: PersonsIn, x_api_key: Optional[str] = Header(default=None
         status=status, persons=persons,
         summary={"objects_in": len(body.objects), "ok": ok_n,
                  "degraded": sum(1 for p in persons if p.status == "degraded"),
-                 "error": sum(1 for p in persons if p.status == "error")},
+                 "error": sum(1 for p in persons if p.status == "error"),
+                 # นับเฉพาะคนที่ตอบได้ · direction ของคน degraded เป็น unknown อยู่แล้ว
+                 # และมันควรถูกนับเป็น "ไม่รู้" ไม่ใช่หายไปจากยอดรวมเฉยๆ
+                 **_direction_counts(persons)},
         model=_model_info(),
         timing_ms={"decode": decode_ms, "vlm": vlm_wall_ms,
                    "vlm_sum": round(vlm_sum, 1), "total": total_ms},
@@ -507,6 +535,7 @@ def post_frame(body: PeopleFrameIn, x_api_key: Optional[str] = Header(default=No
             rows.append({
                 "request_id": request_id, "object_id": p.id,
                 "camera_id": body.camera_id, "ts": now, "status": p.status,
+                "direction": p.direction, "direction_confidence": p.direction_confidence,
                 "gender": p.gender, "gender_confidence": p.gender_confidence,
                 "age_range": p.age_range, "age_range_confidence": p.age_range_confidence,
                 "appearance": p.appearance.model_dump_json(),
@@ -533,7 +562,7 @@ def post_frame(body: PeopleFrameIn, x_api_key: Optional[str] = Header(default=No
         status=status, persons=persons, reason=why,
         # objects_in = 0 เพราะเส้นนี้ไม่มีใครถูกส่งมาให้ตรวจ · people_found คือของจริง
         summary={"objects_in": 0, "ok": len(persons), "degraded": 0, "error": 0,
-                 "people_found": len(persons)},
+                 "people_found": len(persons), **_direction_counts(persons)},
         model=model_info,
         timing_ms={"decode": decode_ms, "vlm": vlm_ms, "vlm_sum": res.latency_ms,
                    "total": total_ms},

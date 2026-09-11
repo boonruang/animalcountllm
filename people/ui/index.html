@@ -94,8 +94,8 @@
     </div>
     <div class="col-6 col-lg-3">
       <div class="small-box bg-muted-lte">
-        <div class="inner"><h3 id="b-gender">–</h3><p>เพศ</p></div>
-        <i class="bi bi-gender-ambiguous icon"></i>
+        <div class="inner"><h3 id="b-gender">–</h3><p>เข้า / ออก</p></div>
+        <i class="bi bi-arrow-left-right icon"></i>
         <span class="box-footer" id="b-gender-foot">ยังไม่มีข้อมูล</span>
       </div>
     </div>
@@ -219,6 +219,9 @@ let natural = {w:0, h:0};
 let objUrl = null, done = 0;
 
 const G   = { male:'ชาย', female:'หญิง', unknown:'ระบุไม่ได้' };
+const DIR = { in:'เข้า', out:'ออก', unknown:'ไม่แน่ใจ' };
+const DIRC= { in:'success', out:'danger', unknown:'secondary' };
+const DIRI= { in:'box-arrow-in-right', out:'box-arrow-right', unknown:'question-lg' };
 const YN  = { yes:'ใช่', no:'ไม่', unknown:'ไม่แน่ใจ' };
 const SKIN= { light:'ผิวขาว', medium:'ผิวสองสี', tan:'ผิวแทน', dark:'ผิวเข้ม', unknown:'ไม่แน่ใจ' };
 const BUILD={ slim:'ผอม', average:'ปานกลาง', heavy:'ท้วม', unknown:'ไม่แน่ใจ' };
@@ -270,7 +273,7 @@ fetch('/people/healthz').then(r => r.json()).then(h => {
     `<span class="text-${bad ? 'warning' : 'success'}">${esc(h.status)}</span>` +
     `<span class="text-muted"> · v${esc(h.version ?? '?')}</span>`;
   $('#h-icon').className = 'info-box-icon ' + (bad ? 'bg-warning text-dark' : 'bg-success');
-  $('#h-model').textContent = h.model ?? '–';
+  $('#h-model').textContent = h.model ?? 'ซ่อนไว้';
   $('#h-max').innerHTML = `${esc(h.max_objects ?? '–')} คน ` +
     `<span class="text-muted">· ขนาน ${esc(h.workers ?? '–')} เส้น</span>`;
   $('#h-save').innerHTML = h.save_images === 'none'
@@ -472,12 +475,15 @@ function dashboard(j) {
       ok.length === ps.length ? 'อ่านได้ครบทุกคน'
                               : `อ่านไม่ได้ ${ps.length - ok.length} คน`);
 
+  const s = j.summary || {};
   const m = ok.filter(p => p.gender === 'male').length;
   const f = ok.filter(p => p.gender === 'female').length;
-  const u = ok.length - m - f;
   box('b-gender', ok.length ? 'bg-primary-lte' : 'bg-muted-lte',
-      ok.length ? `${m}/${f}` : '–',
-      ok.length ? `ชาย ${m} · หญิง ${f}${u ? ` · ระบุไม่ได้ ${u}` : ''}` : 'ยังไม่มีข้อมูล');
+      ok.length ? `${s.direction_in ?? 0}/${s.direction_out ?? 0}` : '–',
+      ok.length ? `เข้า ${s.direction_in ?? 0} · ออก ${s.direction_out ?? 0}` +
+                  `${s.direction_unknown ? ` · ไม่แน่ใจ ${s.direction_unknown}` : ''}` +
+                  ` · ชาย ${m} หญิง ${f}`
+                : 'ยังไม่มีข้อมูล');
 
   const avg = ok.length ? ok.reduce((s, p) => s + p.overall_confidence, 0) / ok.length : 0;
   box('b-conf', avg >= 0.6 ? 'bg-success-lte' : 'bg-warning-lte',
@@ -534,7 +540,9 @@ function person(p) {
   return `<div class="person-card">
     <div class="ph">
       <span><span class="pid">${esc(p.id)}</span>
-        <span class="badge text-bg-primary ms-2">${G[p.gender] ?? esc(p.gender)}</span>
+        <span class="badge text-bg-${DIRC[p.direction] ?? 'secondary'} ms-2">
+          <i class="bi bi-${DIRI[p.direction] ?? 'question-lg'} me-1"></i>${DIR[p.direction] ?? esc(p.direction)}</span>
+        <span class="badge text-bg-primary">${G[p.gender] ?? esc(p.gender)}</span>
         <span class="badge text-bg-secondary">อายุ ${esc(p.age_range)} ปี</span></span>
       <span class="badge text-bg-${PBADGE[p.status]}">${esc(p.status)}</span>
     </div>
@@ -567,6 +575,7 @@ function person(p) {
       </div>
       ${carry ? `<div class="mt-2"><span class="text-muted small me-2">ถือ/สะพาย:</span>${carry}</div>` : ''}
       <div class="mt-3 d-flex flex-column gap-1">
+        ${bar(p.direction_confidence, 'ทิศเข้า/ออก')}
         ${bar(p.gender_confidence, 'เพศ')}
         ${bar(p.age_range_confidence, 'ช่วงอายุ')}
         ${bar(p.appearance_confidence, 'รูปพรรณ')}
@@ -592,8 +601,8 @@ function render(j) {
       <tbody class="attr">
         <tr><th>กล้อง</th><td>${esc(j.camera_id)}</td></tr>
         <tr><th>เวลาที่รับภาพ</th><td>${esc(j.received_at)}</td></tr>
-        <tr><th>โมเดล</th><td>${esc(j.model.name)}
-            <span class="text-muted">(${esc(j.model.prompt_version)})</span></td></tr>
+        ${j.model ? `<tr><th>โมเดล</th><td>${esc(j.model.name)}
+            <span class="text-muted">(${esc(j.model.prompt_version)})</span></td></tr>` : ''}
         <tr><th>Request ID</th><td class="font-monospace small">${esc(j.request_id)}</td></tr>
       </tbody></table>
     <details><summary class="text-muted small">ดูข้อมูลดิบทั้งหมด</summary>

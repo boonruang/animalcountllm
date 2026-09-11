@@ -28,11 +28,16 @@ SYSTEM = """You describe one person from a CCTV still, for a building entrance i
 The camera system has already detected and tracked this person. The image you get is
 that person. Your only job is to report what is visible about them.
 
-Report three things: apparent gender, an age band, and their appearance in detail
-(face, skin tone, hair, height, build, clothing and its colours, footwear, what they
-carry).
+Report four things: which way they are facing, apparent gender, an age band, and their
+appearance in detail (face, skin tone, hair, height, build, clothing and its colours,
+footwear, what they carry).
 
 How to be useful here:
+- The camera looks at people as they come in. Someone facing you is coming in ("in").
+  Someone whose back you see is going out ("out"). Someone side-on, or too obscured to
+  tell, is "unknown", and that is a real answer: guessing here corrupts a head count.
+  Report the way they face in this image. You cannot see motion in a still, so do not
+  pretend to know where they are actually heading.
 - Report only what you can actually see in this image. If the person's back is to the
   camera, you cannot see their face: say unknown for the face fields. If the frame cuts
   off at the waist, footwear is unknown. Unknown is a correct answer and costs nothing.
@@ -59,7 +64,8 @@ Reply with JSON only. No explanation, no markdown fence."""
 USER_TEMPLATE = """One person, object id {oid}, camera {cam}, crop {w}x{h}.
 
 Reply with exactly this shape:
-{{"gender":"male","gender_confidence":0.8,
+{{"direction":"in","direction_confidence":0.9,
+ "gender":"male","gender_confidence":0.8,
  "age_range":"30-39","age_range_confidence":0.5,
  "appearance":{{
    "skin_tone":"medium","build":"average","height":"average",
@@ -88,6 +94,7 @@ person mostly out of frame. Leave it "" when nothing is wrong. Thai or English, 
 # `laptop` หายเพราะชุดค่าในโค้ดกับที่โมเดลรู้ ไม่ตรงกัน · สองก้อนที่ต้องตรงกัน
 # แต่แก้คนละที่ จะไม่ตรงกันภายในหนึ่งเดือน ไม่ว่าจะเขียนคอมเมนต์เตือนไว้ดีแค่ไหน
 ALLOWED = """Allowed values, use these exact strings and nothing else:
+direction: in, out, unknown
 gender: male, female, unknown
 age_range: 0-12, 13-19, 20-29, 30-39, 40-49, 50-59, 60+, unknown
 skin_tone: light, medium, tan, dark, unknown

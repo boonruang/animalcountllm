@@ -3,7 +3,8 @@
 แอปตัวนี้ถูก mount ไว้ใต้ `/people` ของแอปเดิม (ดูท้าย `app/main.py`)
 endpoint จริงจึงเป็น:
 
-    POST /people/v1/persons
+    POST /people/v1/persons          ปลายทางชี้คนมาเอง (id + crop หรือ id + bbox)
+    POST /people/v1/frames           เฟรมเดียว ไม่มีใครถูกชี้ โมเดลหาคนเอง
     GET  /people/v1/persons/{request_id}
     POST /people/v1/persons/{request_id}/{object_id}/truth
     POST /people/v1/maintenance/prune
@@ -38,17 +39,18 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .llm import prompt_p1
-from .llm.client import PersonLLM, normalize
-from .schemas import (ImageInfo, ModelInfo, ObjectIn, PersonOut, PersonTruthIn,
-                      PersonsIn, PersonsOut)
+from .llm import prompt_f1, prompt_p1
+from .llm.client import PersonLLM, normalize, people_of
+from .schemas import (ImageInfo, ModelInfo, ObjectIn, PeopleFrameIn, PersonOut,
+                      PersonTruthIn, PersonsIn, PersonsOut)
 from .store import PersonStore
 
 # 🔴 เลขนี้ต้องขยับทุกครั้งที่ **พฤติกรรมของ endpoint ฝั่งคน** เปลี่ยน
 # แยกจาก APP_VERSION ของฝั่งช้างโดยตั้งใจ สองงานนี้จะ deploy ไปด้วยกันก็จริง
 # แต่ปลายทางคนละทีม ต้องตอบได้ว่า "ของที่คุณเรียกอยู่เวอร์ชันอะไร" แยกกัน
-PEOPLE_VERSION = "0.1.0"
-BUILD_NOTES = "person attributes (gender, age band, appearance) via VLM, prompt p1"
+PEOPLE_VERSION = "0.2.0"
+BUILD_NOTES = ("person attributes (gender, age band, appearance) via VLM"
+               " · /v1/persons prompt p1 · /v1/frames prompt f1")
 
 app = FastAPI(title="smart-people-counting", version=PEOPLE_VERSION)
 
@@ -113,6 +115,11 @@ MIN_CROP_PX = int(os.environ.get("PEOPLE_MIN_CROP_PX", "224"))
 # หนึ่งคน = หนึ่งครั้งที่ยิงโมเดล · ยิงขนานกันเพื่อไม่ให้ 5 คนใช้เวลา 5 เท่า
 # 4 เส้นพอ · มากกว่านี้ไปชนกับ rate limit ของ OpenRouter แทน
 WORKERS = int(os.environ.get("PEOPLE_WORKERS", "4"))
+
+# เพดานจำนวนคนที่เส้น /v1/frames จะรายงานต่อเฟรม
+# ล็อบบี้ตอนพักเที่ยงมีคนสามสิบคนได้ ตอบครบสามสิบ = คำตอบยาวจนโดนตัดกลาง
+# แล้วเสียทั้งเฟรม · สิบสองคนแรกที่ใกล้กล้องที่สุด มีค่ากว่าสามสิบคนที่ตอบไม่จบ
+FRAME_MAX_PEOPLE = int(os.environ.get("PEOPLE_FRAME_MAX_PEOPLE", "12"))
 
 print(f"[people] v{PEOPLE_VERSION} store={STORE_DSN} provider={llm.provider} "
       f"model={llm.model} save_images={SAVE_IMAGES}", flush=True)
@@ -217,7 +224,9 @@ def healthz():
             "version": PEOPLE_VERSION, "build": BUILD_NOTES,
             "provider": llm.provider, "model": llm.model,
             "prompt_version": prompt_p1.PROMPT_VERSION,
+            "frame_prompt_version": prompt_f1.PROMPT_VERSION,
             "max_objects": 16, "workers": WORKERS,
+            "frame_max_people": FRAME_MAX_PEOPLE,
             "bbox_margin": BBOX_MARGIN, "min_crop_px": MIN_CROP_PX,
             "save_images": SAVE_IMAGES,
             "store_path": STORE_DSN, "store_error": STORE_ERROR,
@@ -375,6 +384,121 @@ def post_persons(body: PersonsIn, x_api_key: Optional[str] = Header(default=None
         model=_model_info(),
         timing_ms={"decode": decode_ms, "vlm": vlm_wall_ms,
                    "vlm_sum": round(vlm_sum, 1), "total": total_ms},
+    )
+
+
+@app.post("/v1/frames", response_model=PersonsOut)
+def post_frame(body: PeopleFrameIn, x_api_key: Optional[str] = Header(default=None)):
+    """เฟรมเดียว ไม่มีใครถูกชี้ · โมเดลหาคนเอง ตอบทุกคนในครั้งเดียว
+
+    🔴 body หน้าตาเหมือน `POST /v1/frames` ของฝั่งช้างเป๊ะ ตามที่ Toy สั่ง 2026-09-11
+    ปลายทางที่ยิงฝั่งช้างอยู่แล้วเปลี่ยนแค่ path · หนึ่ง request หนึ่งภาพ ไม่มี array
+
+    สิ่งที่แลกไปเทียบกับ `/v1/persons` **ต้องรู้ก่อนใช้ ไม่ใช่มาค้นพบทีหลัง**:
+    ได้ `ref` (P1 P2 P3) ที่มีความหมายเฉพาะในคำตอบนี้ **ผูกกับ track id ของปลายทางไม่ได้**
+    ตำแหน่งมาเป็นข้อความใน `where` ไม่ใช่ bbox เพราะ bbox ของ LLM เชื่อไม่ได้ (วัดแล้ว)
+    แลกมากับ: เร็วกว่า ~3 เท่า ถูกกว่า ~1.4 เท่า และไม่ต้องมีใคร detect มาก่อน
+
+    ใครที่มี bbox อยู่แล้วให้ใช้ `/v1/persons` ไม่มีเหตุผลที่จะทิ้ง id ทิ้งไป
+    """
+    _auth(x_api_key)
+    t_start = time.perf_counter()
+    request_id = str(uuid.uuid4())
+    now = time.time()
+    if body.ts:
+        try:
+            now = datetime.fromisoformat(body.ts.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            pass
+
+    t_decode = time.perf_counter()
+    raw_bytes = _decode(body.image_base64, "image_base64")
+    try:
+        frame_w, frame_h = _size_of(raw_bytes)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"อ่านภาพไม่ได้: {type(e).__name__}")
+    decode_ms = round((time.perf_counter() - t_decode) * 1000, 1)
+
+    store.insert_request(request_id, body.camera_id, now, 0, body.note)
+    image_hash = hashlib.sha256(body.image_base64.encode()).hexdigest()[:32]
+
+    t_vlm = time.perf_counter()
+    res = llm.describe_frame(body.image_base64, frame_w, frame_h, body.camera_id,
+                             image_hash, FRAME_MAX_PEOPLE)
+    vlm_ms = round((time.perf_counter() - t_vlm) * 1000, 1)
+
+    persons: List[PersonOut] = []
+    rows = []
+    info = ImageInfo(w=frame_w, h=frame_h, source="object_image")
+    model_info = _model_info(res)
+
+    if not res.usable:
+        # 🔴 โมเดลล่ม/ตอบไม่จบ = degraded พร้อมรายชื่อว่าง
+        # **ห้ามตอบ ok + คนศูนย์คน** เพราะนั่นแปลว่า "ล็อบบี้ว่าง" ซึ่งคนละเรื่องกันเลย
+        # นี่คือบั๊กเดียวกับที่ฝั่งช้างเสียเวลาทั้งวัน ตอนภาพ RGB ได้ 200 OK counts ว่าง
+        status = "degraded"
+        why = res.error or (f"โมเดลตอบไม่จบ (finish={res.finish_reason})"
+                            if res.finish_reason == "length" else "โมเดลตอบไม่เป็น JSON")
+    else:
+        found, err = people_of(res.data, FRAME_MAX_PEOPLE)
+        if err:
+            status, why = "degraded", err
+        else:
+            status, why = "ok", ""
+            for ref, where, item in found:
+                n = normalize(item)
+                conf = round((n["gender_confidence"] + n["age_range_confidence"]
+                              + n["appearance_confidence"]) / 3, 3)
+                persons.append(PersonOut(id=ref, status="ok", where=where,
+                                         overall_confidence=conf, image=info,
+                                         model=model_info,
+                                         timing_ms=res.latency_ms, **n))
+
+    if status == "degraded":
+        # ไม่มีรายคนให้รายงาน · เหตุผลอยู่ที่ระดับ request ไม่ใช่ซ่อนอยู่ในคนที่ไม่มี
+        rows.append({"request_id": request_id, "object_id": "-",
+                     "camera_id": body.camera_id, "ts": now, "status": "degraded",
+                     "reason": why, "latency_ms": res.latency_ms,
+                     "llm_raw_response": res.raw or (res.error or ""),
+                     "prompt_version": prompt_f1.PROMPT_VERSION,
+                     "model_name": llm.model, "provider": llm.provider,
+                     "finish_reason": res.finish_reason,
+                     "completion_tokens": res.completion_tokens})
+    else:
+        for p in persons:
+            rows.append({
+                "request_id": request_id, "object_id": p.id,
+                "camera_id": body.camera_id, "ts": now, "status": p.status,
+                "gender": p.gender, "gender_confidence": p.gender_confidence,
+                "age_range": p.age_range, "age_range_confidence": p.age_range_confidence,
+                "appearance": p.appearance.model_dump_json(),
+                "appearance_confidence": p.appearance_confidence,
+                "description": p.description, "overall_confidence": p.overall_confidence,
+                # `where` ไปรวมกับ reason ในฐานข้อมูล ไม่ได้เพิ่มคอลัมน์ใหม่
+                # ตารางนี้เป็นของสำหรับไล่ดูย้อนหลัง ไม่ใช่สัญญากับปลายทาง
+                "reason": (f"where: {p.where}" if p.where else ""),
+                "image_w": frame_w, "image_h": frame_h, "image_source": "frame",
+                "image_path": None,
+                "llm_raw_response": res.raw,
+                "prompt_version": prompt_f1.PROMPT_VERSION,
+                "model_name": llm.model, "provider": llm.provider,
+                "finish_reason": res.finish_reason,
+                "completion_tokens": res.completion_tokens,
+                "latency_ms": res.latency_ms})
+
+    total_ms = round((time.perf_counter() - t_start) * 1000, 1)
+    store.insert_persons(rows)
+    store.finish_request(request_id, status, total_ms)
+
+    return PersonsOut(
+        request_id=request_id, camera_id=body.camera_id, received_at=_iso(now),
+        status=status, persons=persons, reason=why,
+        # objects_in = 0 เพราะเส้นนี้ไม่มีใครถูกส่งมาให้ตรวจ · people_found คือของจริง
+        summary={"objects_in": 0, "ok": len(persons), "degraded": 0, "error": 0,
+                 "people_found": len(persons)},
+        model=model_info,
+        timing_ms={"decode": decode_ms, "vlm": vlm_ms, "vlm_sum": res.latency_ms,
+                   "total": total_ms},
     )
 
 

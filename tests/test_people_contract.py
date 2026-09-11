@@ -26,9 +26,9 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import people.main as pm  # noqa: E402
 
-TOP = {"request_id", "camera_id", "received_at", "status", "persons", "summary",
-       "model", "timing_ms"}
-PERSON = {"id", "status", "gender", "gender_confidence", "age_range",
+TOP = {"request_id", "camera_id", "received_at", "status", "reason", "persons",
+       "summary", "model", "timing_ms"}
+PERSON = {"id", "status", "where", "gender", "gender_confidence", "age_range",
           "age_range_confidence", "appearance", "appearance_confidence",
           "description", "overall_confidence", "reason", "image", "model",
           "timing_ms"}
@@ -207,3 +207,68 @@ def test_healthz_ตอบได้แม้โมเดลใช้ไม่ไ
     assert h["prompt_version"] == "p1"
     # ค่าเริ่มต้นต้องไม่เก็บภาพคน · ถ้าวันหนึ่งมีคนเปลี่ยน default เทสต์นี้จะดัง
     assert h["save_images"] == "none"
+
+
+# ---------------------------------------------------------------- /v1/frames
+# เส้นที่สอง · body หน้าตาเหมือนฝั่งช้างเป๊ะ ไม่มีใครถูกชี้ โมเดลหาคนเอง
+
+def test_body_ของ_frames_เหมือน_spec_ช้างเป๊ะ():
+    """🔴 ฟิลด์ต้องตรงกับ app.schemas.FrameIn ทุกตัว ตามที่ Toy สั่ง
+
+    ปลายทางที่ยิงฝั่งช้างอยู่แล้วต้องเปลี่ยนแค่ path · เทสต์นี้เทียบกับของจริง
+    ไม่ใช่กับรายการที่พิมพ์ไว้เอง ฝั่งโน้นขยับเมื่อไหร่ที่นี่จะรู้ทันที
+    """
+    from app.schemas import FrameIn
+    from people.schemas import PeopleFrameIn
+    assert set(PeopleFrameIn.model_fields) == set(FrameIn.model_fields)
+
+
+def test_frames_ตอบเต็มรูปแม้โมเดลล่ม_และบอกเหตุผลที่ระดับ_request():
+    """ไม่มีคนสักคนให้ใส่เหตุผลไว้ข้างใน เหตุผลจึงต้องอยู่ระดับบน"""
+    r = client.post("/v1/frames", json={"camera_id": "cam-f", "image_base64": _png(640, 480)})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert set(d) == TOP
+    assert d["status"] == "degraded"
+    assert d["persons"] == []
+    assert d["reason"], "degraded ต้องบอกเหตุผล ไม่ใช่เงียบ"
+    assert d["summary"]["people_found"] == 0
+
+
+def test_frames_รับ_ts_กับ_note_แบบเดียวกับช้าง():
+    r = client.post("/v1/frames", json={
+        "camera_id": "cam-f", "image_base64": _png(64, 64),
+        "ts": "2026-08-16T06:30:00+07:00", "note": "optional free text"})
+    assert r.status_code == 200
+    assert r.json()["received_at"].startswith("2026-08-15T23:30"), "ts ที่ส่งมาต้องถูกใช้"
+
+
+def test_frames_ภาพเสียตอบ_400():
+    r = client.post("/v1/frames", json={"camera_id": "c", "image_base64": "!!!"})
+    assert r.status_code == 400
+
+
+def test_ไม่มีคนในเฟรม_ไม่ใช่ความล้มเหลว():
+    """🔴 {"people":[]} = ล็อบบี้ว่าง ซึ่งเป็นคำตอบจริง
+
+    ต้องแยกจาก "โมเดลพัง" ให้ขาด ไม่งั้นเฟรมที่โมเดลพังจะดูเหมือนล็อบบี้ว่างเป๊ะ
+    ซึ่งคือบั๊กเดียวกับที่ฝั่งช้างเสียเวลาไปทั้งวัน
+    """
+    from people.llm.client import people_of
+    empty, err = people_of({"people": []})
+    assert empty == [] and err is None
+    missing, err2 = people_of({"animals": []})
+    assert missing == [] and err2, "ไม่มีคีย์ people = โมเดลไม่ทำตามที่สั่ง คนละเรื่องกับว่าง"
+
+
+def test_frames_เกินเพดานคนถูกตัด_ไม่ใช่ตอบยาวไม่จบ():
+    from people.llm.client import people_of
+    many = {"people": [{"ref": f"P{i}"} for i in range(50)]}
+    got, err = people_of(many, cap=12)
+    assert err is None and len(got) == 12
+
+
+def test_where_มีเฉพาะเส้น_frames():
+    """เส้น persons ปลายทางชี้เองอยู่แล้ว ไม่ต้องมีใครมาบอกว่าคนไหน"""
+    d = _post([{"id": "ID-1", "image_base64": _png()}])
+    assert d["persons"][0]["where"] == ""

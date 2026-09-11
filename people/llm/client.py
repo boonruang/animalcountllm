@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
 from ..schemas import Appearance, Garment
-from . import prompt_p1
+from . import prompt_f1, prompt_p1
 
 # ชุดค่าที่ยอมรับ · ดึงจาก Literal ใน schemas.py โดยตรง ไม่พิมพ์ซ้ำ
 # เคยมีบั๊กแนวนี้ฝั่งช้าง: `unstable` อยู่ใน schema และในเอกสารตั้งแต่วันแรก
@@ -72,6 +72,10 @@ class PersonLLM:
         # บวกคำบรรยายไทยอีกหนึ่งย่อหน้า (ภาษาไทยกิน token มากกว่าอังกฤษราวเท่าตัว)
         # วัดจริงแล้วปรับได้ แต่เริ่มจากเผื่อไว้ ดีกว่าโดน finish=length ทุกใบ
         self.max_tokens = int(os.environ.get("PEOPLE_LLM_MAX_TOKENS", "700"))
+        # เส้น /v1/frames ตอบทุกคนในครั้งเดียว คำตอบยาวตามจำนวนคน ไม่คงที่เหมือน p1
+        # วัดจริง 2026-09-11: สามคน 567 tok ≈ 190 tok/คน · เพดาน 12 คน = ~2,300
+        # ตั้ง 2500 เผื่อไว้ · โดน finish=length เมื่อไหร่ = เสียทั้งเฟรม ไม่ใช่เสียคนเดียว
+        self.frame_max_tokens = int(os.environ.get("PEOPLE_FRAME_MAX_TOKENS", "2500"))
         self.timeout = float(os.environ.get("LLM_TIMEOUT_S", "25"))
         # 🔴 ค่าเริ่มต้นของ langchain คือ retry 2 ครั้ง ซึ่งแปลว่าตอน OpenRouter ล่ม
         # คนหนึ่งคนกิน 3 เท่าของ timeout ก่อนจะยอมแพ้ (75 วิ ที่ timeout 25)
@@ -93,6 +97,27 @@ class PersonLLM:
     def describe(self, image_b64: str, object_id: str, w: int, h: int,
                  camera_id: str = "unknown", image_hash: str = "") -> PersonResult:
         system, user = prompt_p1.build(object_id, w, h, camera_id)
+        return self._invoke(system, user, image_b64, image_hash,
+                            prompt_p1.PROMPT_VERSION, self.max_tokens,
+                            {"object_id": object_id, "crop": f"{w}x{h}"},
+                            "describe_person")
+
+    def describe_frame(self, image_b64: str, w: int, h: int,
+                       camera_id: str = "unknown", image_hash: str = "",
+                       cap: int = 12) -> PersonResult:
+        """เส้น f1 · ทั้งเฟรม ไม่มีใครถูกชี้ ตอบทุกคนในครั้งเดียว
+
+        คำตอบยาวตามจำนวนคน ต่างจาก p1 ที่ยาวคงที่ · โควตา token จึงต้องคนละตัว
+        วัดจริง 2026-09-11 กับเฟรมสามคน: 567 tok ที่ราว 190 tok/คน
+        """
+        system, user = prompt_f1.build(w, h, camera_id, cap)
+        return self._invoke(system, user, image_b64, image_hash,
+                            prompt_f1.PROMPT_VERSION, self.frame_max_tokens,
+                            {"frame": f"{w}x{h}", "cap": cap}, "describe_frame")
+
+    def _invoke(self, system: str, user: str, image_b64: str, image_hash: str,
+                prompt_version: str, max_tokens: int, meta_extra: dict,
+                run_name: str) -> PersonResult:
         t0 = time.perf_counter()
         try:
             from langchain_openai import ChatOpenAI
@@ -103,7 +128,7 @@ class PersonLLM:
                 kw["extra_body"] = {"reasoning": {"enabled": False}}
             llm = ChatOpenAI(
                 base_url=self.base_url, api_key=self.api_key, model=self.model,
-                max_tokens=self.max_tokens, temperature=0, timeout=self.timeout,
+                max_tokens=max_tokens, temperature=0, timeout=self.timeout,
                 max_retries=self.max_retries, **kw,
             )
             msgs = [
@@ -118,10 +143,9 @@ class PersonLLM:
             # ภาพฝั่งช้างคือสัตว์ในป่า ภาพฝั่งนี้คือหน้าคนที่เดินเข้าอาคาร
             # ไม่มีเหตุผลอะไรที่มันต้องไปนอนอยู่บนเซิร์ฟเวอร์ของเจ้าอื่น
             resp = llm.invoke(msgs, config={
-                "metadata": {"image_hash": image_hash, "object_id": object_id,
-                             "crop": f"{w}x{h}", "camera": camera_id,
-                             "prompt_version": prompt_p1.PROMPT_VERSION},
-                "run_name": "describe_person",
+                "metadata": {"image_hash": image_hash,
+                             "prompt_version": prompt_version, **meta_extra},
+                "run_name": run_name,
             })
             dt = (time.perf_counter() - t0) * 1000
             meta = resp.response_metadata or {}
@@ -177,6 +201,29 @@ def parse(text: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     if not isinstance(data, dict):
         return None, "JSON is not an object"
     return data, None
+
+
+def people_of(data: Dict[str, Any], cap: int = 12) -> Tuple[list, Optional[str]]:
+    """ดึงรายการคนออกจากคำตอบของเส้น f1
+
+    🔴 แยก "ไม่มีคนในเฟรม" ออกจาก "อ่านไม่ได้" ให้ชัด
+    `{"people":[]}` คือคำตอบจริงของล็อบบี้ที่ว่าง ไม่ใช่ความล้มเหลว
+    ส่วนคำตอบที่ไม่มีคีย์ `people` เลย แปลว่าโมเดลไม่ได้ทำตามที่สั่ง ซึ่งคนละเรื่อง
+    ถ้ายุบสองอย่างนี้เป็นอันเดียว เฟรมที่โมเดลพังจะดูเหมือนล็อบบี้ว่างเป๊ะ
+    ซึ่งคือบั๊กเดียวกับที่ฝั่งช้างเสียเวลาไปทั้งวัน
+    """
+    if "people" not in data:
+        return [], "ไม่มีคีย์ people ในคำตอบ"
+    raw = data.get("people")
+    if not isinstance(raw, list):
+        return [], f"people ไม่ใช่ list (ได้ {type(raw).__name__})"
+    out = []
+    for i, item in enumerate(raw[:cap]):
+        if not isinstance(item, dict):
+            continue
+        ref = str(item.get("ref") or f"P{i + 1}").strip()[:16] or f"P{i + 1}"
+        out.append((ref, str(item.get("where") or "").strip()[:200], item))
+    return out, None
 
 
 def _pick(value: Any, allowed: set, default: str = "unknown") -> str:

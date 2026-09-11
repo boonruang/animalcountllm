@@ -174,7 +174,8 @@
           <div id="stagewrap" class="text-center mt-3 d-none">
             <div id="stage"><img id="preview" alt=""><canvas id="cv"></canvas></div>
             <div class="small text-muted mt-2">
-              ลากกรอบทับตัวคนในภาพ · ไม่ลากเลย = ส่งทั้งภาพเป็นหนึ่งคน
+              ลากกรอบทับตัวคนในภาพ = ถามเฉพาะคนที่ลาก ผูก id ให้<br>
+              <b>ไม่ลากเลย = ให้ระบบหาคนเองทั้งเฟรม</b> เร็วกว่า แต่ไม่มี id ผูกกลับ
               <button id="clearbox" class="btn btn-sm btn-link py-0">ล้างกรอบ</button>
             </div>
           </div>
@@ -405,27 +406,32 @@ go.onclick = async () => {
   if (!cam) { warn('ต้องใส่ Camera ID ก่อน'); $('#cam').focus(); return; }
   warn(null);
 
-  let body;
+  // สามทาง · ไม่ลากกรอบและมีภาพเดียว = ให้ระบบหาคนเองทั้งเฟรม (spec เดียวกับฝั่งช้าง)
+  let body, path = '/people/v1/persons', n;
   if (single && boxes.length) {
     body = { camera_id: cam, frame_base64: single.b64,
              objects: boxes.map((b, i) => ({ id: `ID-${i+1}`, bbox: b })) };
+    n = body.objects.length;
   } else if (single) {
-    body = { camera_id: cam,
-             objects: [{ id: idOf(single.name, 0), image_base64: single.b64 }] };
+    path = '/people/v1/frames';
+    body = { camera_id: cam, image_base64: single.b64,
+             ts: new Date().toISOString(), note: single.name };
+    n = 0;   // ยังไม่รู้ว่ามีกี่คนจนกว่าโมเดลจะตอบ
   } else {
     body = { camera_id: cam,
              objects: files.map((f, i) => ({ id: idOf(f.name, i), image_base64: f.b64 })) };
+    n = body.objects.length;
   }
-  const n = body.objects.length;
 
   go.disabled = true;
   go.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>กำลังอ่าน';
   $('#hdr-badge').innerHTML = '<span class="badge text-bg-light border">กำลังประมวลผล</span>';
   out.innerHTML = '<div class="d-flex align-items-center gap-2 text-muted">' +
     '<span class="spinner-border spinner-border-sm"></span>' +
-    `กำลังให้โมเดลอ่าน ${n} คน อาจใช้เวลาถึง 25 วินาที</div>`;
+    `${n ? `กำลังให้โมเดลอ่าน ${n} คน` : 'กำลังให้โมเดลหาคนในเฟรมเอง'}` +
+    ' อาจใช้เวลาถึง 25 วินาที</div>';
   try {
-    const res = await fetch('/people/v1/persons', {
+    const res = await fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
       body: JSON.stringify(body)
@@ -433,7 +439,7 @@ go.onclick = async () => {
     const j = await res.json();
     if (res.status === 401) fail('X-API-Key ไม่ถูกต้อง ตรวจกับ admin อีกครั้ง');
     else if (!res.ok) fail(`ผิดพลาด HTTP ${res.status} · ${fmtDetail(j.detail)}`);
-    else { done += n; dashboard(j); render(j); }
+    else { done += (j.persons || []).length; dashboard(j); render(j); }
   } catch (e) {
     fail('ติดต่อระบบไม่ได้: ' + e);
   } finally {
@@ -533,6 +539,8 @@ function person(p) {
       <span class="badge text-bg-${PBADGE[p.status]}">${esc(p.status)}</span>
     </div>
     <div class="p-3">
+      ${p.where ? `<div class="mb-2 small text-muted">
+         <i class="bi bi-geo-alt me-1"></i>${esc(p.where)}</div>` : ''}
       <div class="desc mb-3">${esc(p.description || 'โมเดลไม่ได้ให้คำบรรยาย')}</div>
       ${a.distinctive ? `<div class="mb-2"><i class="bi bi-star-fill text-warning me-1"></i>
          <b>จุดสังเกต:</b> ${esc(a.distinctive)}</div>` : ''}
@@ -574,7 +582,12 @@ function person(p) {
 function render(j) {
   $('#hdr-badge').innerHTML =
     `<span class="badge text-bg-${BADGE[j.status] ?? 'secondary'}">${esc(j.status)}</span>`;
-  out.innerHTML = (j.persons || []).map(person).join('') + `
+  const head = j.reason
+    ? `<div class="alert alert-warning py-2"><b>อ่านเฟรมนี้ไม่ได้:</b> ${esc(j.reason)}</div>`
+    : ((j.persons || []).length ? '' :
+       '<div class="alert alert-secondary py-2 mb-3">ไม่พบคนในเฟรมนี้ ' +
+       '<span class="text-muted">(เป็นคำตอบจริง ไม่ใช่ระบบพัง)</span></div>');
+  out.innerHTML = head + (j.persons || []).map(person).join('') + `
     <table class="table table-sm mb-3">
       <tbody class="attr">
         <tr><th>กล้อง</th><td>${esc(j.camera_id)}</td></tr>

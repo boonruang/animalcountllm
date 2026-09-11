@@ -76,7 +76,18 @@ Reply with exactly this shape:
  "description":"ชายไทย อายุราว 30 ปี ผิวสองสี ผมสั้นสีดำ ใส่เสื้อเชิ้ตแขนยาวสีขาว กางเกงสแลคสีดำ รองเท้าหนังสีดำ มีสายคล้องคอสีเขียว",
  "reason":""}}
 
-Allowed values, use these exact strings and nothing else:
+{allowed}
+
+`reason` is for when something blocks you: back turned, motion blur, too dark, too far,
+person mostly out of frame. Leave it "" when nothing is wrong. Thai or English, short."""
+
+
+# 🔴 ชุดค่าที่ยอมรับ อยู่ที่เดียว · prompt_f1 ใช้ก้อนนี้ร่วมกัน
+#
+# เคยจะก๊อปไปวางในไฟล์ที่สอง แล้วนึกได้ว่านั่นคือบั๊กที่เพิ่งเจอไปเมื่อเช้า:
+# `laptop` หายเพราะชุดค่าในโค้ดกับที่โมเดลรู้ ไม่ตรงกัน · สองก้อนที่ต้องตรงกัน
+# แต่แก้คนละที่ จะไม่ตรงกันภายในหนึ่งเดือน ไม่ว่าจะเขียนคอมเมนต์เตือนไว้ดีแค่ไหน
+ALLOWED = """Allowed values, use these exact strings and nothing else:
 gender: male, female, unknown
 age_range: 0-12, 13-19, 20-29, 30-39, 40-49, 50-59, 60+, unknown
 skin_tone: light, medium, tan, dark, unknown
@@ -96,11 +107,9 @@ carrying: backpack, shoulder_bag, handbag, tote, shopping_bag, luggage, phone, l
 
 `top` is the garment against the body. `outer` is anything worn over it, a blazer, jacket
 or coat. Someone in a dark blazer over a white shirt is remembered as the person in the
-dark blazer, so both fields matter. Use "none" for outer when they wear nothing over.
-
-`reason` is for when something blocks you: back turned, motion blur, too dark, too far,
-person mostly out of frame. Leave it "" when nothing is wrong. Thai or English, short."""
+dark blazer, so both fields matter. Use "none" for outer when they wear nothing over."""
 
 
 def build(object_id: str, w: int, h: int, camera_id: str = "unknown"):
-    return SYSTEM, USER_TEMPLATE.format(oid=object_id, w=w, h=h, cam=camera_id)
+    return SYSTEM, USER_TEMPLATE.format(oid=object_id, w=w, h=h, cam=camera_id,
+                                        allowed=ALLOWED)

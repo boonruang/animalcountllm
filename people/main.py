@@ -6,6 +6,7 @@ endpoint จริงจึงเป็น:
     POST /people/v1/persons          ปลายทางชี้คนมาเอง (id + crop หรือ id + bbox)
     POST /people/v1/frames           เฟรมเดียว ไม่มีใครถูกชี้ โมเดลหาคนเอง
     GET  /people/v1/persons/{request_id}
+    GET  /people/v1/persons/by-ref/{client_request_id}   ตามด้วยเลขอ้างอิงของปลายทางเอง
     POST /people/v1/persons/{request_id}/{object_id}/truth
     POST /people/v1/maintenance/prune
     GET  /people/healthz
@@ -50,7 +51,7 @@ from .store import PersonStore
 # 🔴 เลขนี้ต้องขยับทุกครั้งที่ **พฤติกรรมของ endpoint ฝั่งคน** เปลี่ยน
 # แยกจาก APP_VERSION ของฝั่งช้างโดยตั้งใจ สองงานนี้จะ deploy ไปด้วยกันก็จริง
 # แต่ปลายทางคนละทีม ต้องตอบได้ว่า "ของที่คุณเรียกอยู่เวอร์ชันอะไร" แยกกัน
-PEOPLE_VERSION = "0.3.0"
+PEOPLE_VERSION = "0.4.0"
 BUILD_NOTES = ("person attributes (gender, age band, appearance) via VLM"
                " · /v1/persons prompt p1 · /v1/frames prompt f1")
 
@@ -313,7 +314,8 @@ def post_persons(body: PersonsIn, x_api_key: Optional[str] = Header(default=None
         raise HTTPException(status_code=400,
                             detail=f"object id ซ้ำกันใน request เดียว: {ids}")
 
-    store.insert_request(request_id, body.camera_id, now, len(body.objects), body.note)
+    store.insert_request(request_id, body.camera_id, now, len(body.objects),
+                         body.note, body.client_request_id)
 
     # ---- [1] เตรียมภาพของแต่ละคน ทำก่อนยิงโมเดลทั้งหมด
     # decode เฟรมเต็มครั้งเดียว ไม่ใช่ครั้งละคน · เฟรม 1920x1080 สามคน
@@ -439,7 +441,8 @@ def post_persons(body: PersonsIn, x_api_key: Optional[str] = Header(default=None
     store.finish_request(request_id, status, total_ms)
 
     return PersonsOut(
-        request_id=request_id, camera_id=body.camera_id, received_at=_iso(now),
+        request_id=request_id, client_request_id=body.client_request_id,
+        note=body.note, camera_id=body.camera_id, received_at=_iso(now),
         status=status, persons=persons,
         summary={"objects_in": len(body.objects), "ok": ok_n,
                  "degraded": sum(1 for p in persons if p.status == "degraded"),
@@ -485,7 +488,8 @@ def post_frame(body: PeopleFrameIn, x_api_key: Optional[str] = Header(default=No
         raise HTTPException(status_code=400, detail=f"อ่านภาพไม่ได้: {type(e).__name__}")
     decode_ms = round((time.perf_counter() - t_decode) * 1000, 1)
 
-    store.insert_request(request_id, body.camera_id, now, 0, body.note)
+    store.insert_request(request_id, body.camera_id, now, 0, body.note,
+                         body.client_request_id)
     image_hash = hashlib.sha256(body.image_base64.encode()).hexdigest()[:32]
 
     t_vlm = time.perf_counter()
@@ -558,7 +562,8 @@ def post_frame(body: PeopleFrameIn, x_api_key: Optional[str] = Header(default=No
     store.finish_request(request_id, status, total_ms)
 
     return PersonsOut(
-        request_id=request_id, camera_id=body.camera_id, received_at=_iso(now),
+        request_id=request_id, client_request_id=body.client_request_id,
+        note=body.note, camera_id=body.camera_id, received_at=_iso(now),
         status=status, persons=persons, reason=why,
         # objects_in = 0 เพราะเส้นนี้ไม่มีใครถูกส่งมาให้ตรวจ · people_found คือของจริง
         summary={"objects_in": 0, "ok": len(persons), "degraded": 0, "error": 0,
@@ -567,6 +572,28 @@ def post_frame(body: PeopleFrameIn, x_api_key: Optional[str] = Header(default=No
         timing_ms={"decode": decode_ms, "vlm": vlm_ms, "vlm_sum": res.latency_ms,
                    "total": total_ms},
     )
+
+
+@app.get("/v1/persons/by-ref/{client_request_id}")
+def get_by_client_ref(client_request_id: str,
+                      x_api_key: Optional[str] = Header(default=None)):
+    """ตามผลด้วยเลขอ้างอิงของปลายทางเอง
+
+    🔴 เส้นนี้มีไว้สำหรับตอน **ยิงไปแล้วไม่รู้ผล** (timeout, เน็ตหลุด, แอปถูกปิด)
+    ซึ่งเป็นตอนเดียวที่ `request_id` ของเราช่วยอะไรไม่ได้ เพราะเขาไม่เคยได้เห็นมัน
+
+    ส่งซ้ำ id เดิมมาหลายครั้ง = มีหลายผล คืน**อันล่าสุด** และบอกจำนวนที่เจอ
+    เราไม่การันตีว่าไม่ซ้ำ เพราะเลขนี้ไม่ใช่ของเรา
+    """
+    _auth(x_api_key)
+    rows = store.by_client_ref(client_request_id)
+    if not rows:
+        raise HTTPException(status_code=404,
+                            detail="ไม่เคยเห็น client_request_id นี้")
+    latest = store.get_request(rows[0]["request_id"])
+    return JSONResponse({"client_request_id": client_request_id,
+                         "matches": len(rows),
+                         "latest": latest})
 
 
 @app.get("/v1/persons/{request_id}")

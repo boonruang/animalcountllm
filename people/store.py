@@ -24,11 +24,15 @@ CREATE TABLE IF NOT EXISTS person_requests (
   camera_id   TEXT NOT NULL,
   ts          REAL NOT NULL,
   objects_in  INTEGER,
+  client_request_id TEXT,
   status      TEXT,
   latency_ms  REAL,
   note        TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_preq_cam_ts ON person_requests(camera_id, ts);
+-- 🔴 index ของ client_request_id สร้างใน _migrate() ไม่ใช่ที่นี่
+-- ตารางเก่ายังไม่มีคอลัมน์นั้น ถ้าสร้าง index ตรงนี้จะพังตั้งแต่ executescript
+-- ก่อน ALTER TABLE จะได้ทำงาน แล้วทั้งฐานเปิดไม่ขึ้น (เจอจริง 2026-09-11)
 
 CREATE TABLE IF NOT EXISTS persons (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,24 +96,34 @@ class PersonStore:
         **บั๊กที่ prod ไม่มีวันเจอแต่ dev เจอตลอด คือบั๊กที่จะถูกมองข้าม**
         เลยเติมให้เองตรงนี้ ไม่ต้องรอให้ใครไปลบไฟล์ทิ้ง
         """
-        have = {r["name"] for r in
-                self._conn.execute("PRAGMA table_info(persons)").fetchall()}
-        for col, decl in (("direction", "TEXT"), ("direction_confidence", "REAL")):
-            if col not in have:
-                self._conn.execute(f"ALTER TABLE persons ADD COLUMN {col} {decl}")
-                print(f"[people] migrate: เพิ่มคอลัมน์ persons.{col}", flush=True)
+        for table, cols in (
+            ("persons", (("direction", "TEXT"), ("direction_confidence", "REAL"))),
+            ("person_requests", (("client_request_id", "TEXT"),)),
+        ):
+            have = {r["name"] for r in
+                    self._conn.execute(f"PRAGMA table_info({table})").fetchall()}
+            for col, decl in cols:
+                if col not in have:
+                    self._conn.execute(
+                        f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+                    print(f"[people] migrate: เพิ่มคอลัมน์ {table}.{col}", flush=True)
+        # index ต้องมาหลังคอลัมน์ ไม่ใช่ก่อน
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_preq_client_ref"
+                           " ON person_requests(client_request_id, ts)")
 
     # ------------------------------------------------------------ write
     def insert_request(self, request_id: str, camera_id: str, ts: float,
-                       objects_in: int, note: Optional[str]) -> None:
+                       objects_in: int, note: Optional[str],
+                       client_request_id: Optional[str] = None) -> None:
         """บันทึกก่อนยิงโมเดล · โมเดลล่มหรือ container ตายกลางทาง
         ก็ยังต้องมีร่องรอยว่า request นี้เคยมาถึง ไม่ใช่หายเงียบ"""
         with self._lock:
             self._conn.execute(
                 "INSERT OR REPLACE INTO person_requests"
-                " (request_id, camera_id, ts, objects_in, status, note)"
-                " VALUES (?,?,?,?,?,?)",
-                (request_id, camera_id, ts, objects_in, "received", note))
+                " (request_id, camera_id, ts, objects_in, status, note,"
+                " client_request_id) VALUES (?,?,?,?,?,?,?)",
+                (request_id, camera_id, ts, objects_in, "received", note,
+                 client_request_id))
             self._conn.commit()
 
     def finish_request(self, request_id: str, status: str, latency_ms: float) -> None:
@@ -176,6 +190,15 @@ class PersonStore:
             persons.append(d)
         out["persons"] = persons
         return out
+
+    def by_client_ref(self, client_request_id: str) -> List[Dict[str, Any]]:
+        """หา request จากเลขอ้างอิงของปลายทาง · ใหม่สุดก่อน"""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT request_id, ts, status FROM person_requests"
+                " WHERE client_request_id=? ORDER BY ts DESC LIMIT 20",
+                (client_request_id,)).fetchall()
+        return [dict(r) for r in rows]
 
     def recent(self, camera_id: str, limit: int = 50) -> List[Dict[str, Any]]:
         with self._lock:

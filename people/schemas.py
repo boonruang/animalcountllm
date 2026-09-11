@@ -121,6 +121,13 @@ class PersonsIn(BaseModel):
 
     ts: Optional[str] = None  # ISO 8601; ไม่ส่งมา = ใช้เวลาที่เซิร์ฟเวอร์รับ
     note: Optional[str] = None
+    client_request_id: Optional[str] = Field(None, max_length=128)
+    """เลขอ้างอิงของ**ฝั่งปลายทางเอง** เราไม่ตีความ ไม่ตรวจ ไม่บังคับให้ไม่ซ้ำ
+    ส่งมาอย่างไรตอบกลับอย่างนั้นเป๊ะ และใช้ยิง GET กลับมาดูทีหลังได้
+
+    มีไว้เพราะ `request_id` ที่เราออกให้ ปลายทางจะรู้ก็ต่อเมื่อได้ response แล้ว
+    **ถ้า timeout หรือเน็ตหลุดกลางทาง เขาจับคู่อะไรไม่ได้เลย** ตัวนี้เขารู้ตั้งแต่
+    ก่อนยิง เลยใช้ตามของที่ส่งไปแล้วไม่รู้ผลได้"""
 
 
 class PeopleFrameIn(BaseModel):
@@ -136,6 +143,13 @@ class PeopleFrameIn(BaseModel):
     image_base64: str
     ts: Optional[str] = None  # ISO 8601; ไม่ส่งมา = ใช้เวลาที่เซิร์ฟเวอร์รับ
     note: Optional[str] = None
+    client_request_id: Optional[str] = Field(None, max_length=128)
+    """เลขอ้างอิงของ**ฝั่งปลายทางเอง** เราไม่ตีความ ไม่ตรวจ ไม่บังคับให้ไม่ซ้ำ
+    ส่งมาอย่างไรตอบกลับอย่างนั้นเป๊ะ และใช้ยิง GET กลับมาดูทีหลังได้
+
+    มีไว้เพราะ `request_id` ที่เราออกให้ ปลายทางจะรู้ก็ต่อเมื่อได้ response แล้ว
+    **ถ้า timeout หรือเน็ตหลุดกลางทาง เขาจับคู่อะไรไม่ได้เลย** ตัวนี้เขารู้ตั้งแต่
+    ก่อนยิง เลยใช้ตามของที่ส่งไปแล้วไม่รู้ผลได้"""
 
 
 class PersonTruthIn(BaseModel):
@@ -287,6 +301,17 @@ class PersonOut(BaseModel):
 
 class PersonsOut(BaseModel):
     request_id: str
+    """เลขที่**เราออกให้** ไม่ซ้ำแน่นอน · ใช้ยิง GET /v1/persons/{request_id}"""
+
+    client_request_id: Optional[str] = None
+    """เลขอ้างอิงของปลายทางที่ส่งมา คืนกลับเป๊ะตัวเดิม · null ถ้าไม่ได้ส่งมา
+
+    🔴 คืนกลับดิบๆ โดยไม่แก้ไข **ตัวนี้คือของที่ปลายทางใช้ยืนยันว่าคำตอบนี้เป็นของตัวเอง**
+    เราไม่การันตีว่าไม่ซ้ำ เพราะมันไม่ใช่ของเรา ส่งซ้ำมาก็ตอบซ้ำไปตามนั้น"""
+
+    note: Optional[str] = None
+    """`note` ที่ส่งมา คืนกลับเป๊ะตัวเดิม · เผื่อปลายทางฝากข้อความติดไปกับ request"""
+
     camera_id: str
     received_at: str
     status: RequestStatus

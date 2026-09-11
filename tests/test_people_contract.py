@@ -26,8 +26,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import people.main as pm  # noqa: E402
 
-TOP = {"request_id", "camera_id", "received_at", "status", "reason", "persons",
-       "summary", "model", "timing_ms"}
+TOP = {"request_id", "client_request_id", "note", "camera_id", "received_at",
+       "status", "reason", "persons", "summary", "model", "timing_ms"}
 PERSON = {"id", "status", "where", "direction", "direction_confidence",
           "gender", "gender_confidence", "age_range",
           "age_range_confidence", "appearance", "appearance_confidence",
@@ -244,15 +244,22 @@ def test_healthz_ตอบได้แม้โมเดลใช้ไม่ไ
 # ---------------------------------------------------------------- /v1/frames
 # เส้นที่สอง · body หน้าตาเหมือนฝั่งช้างเป๊ะ ไม่มีใครถูกชี้ โมเดลหาคนเอง
 
-def test_body_ของ_frames_เหมือน_spec_ช้างเป๊ะ():
-    """🔴 ฟิลด์ต้องตรงกับ app.schemas.FrameIn ทุกตัว ตามที่ Toy สั่ง
+def test_body_ของ_frames_รับของฝั่งช้างได้ครบทุกฟิลด์():
+    """🔴 ปลายทางที่ยิงฝั่งช้างอยู่แล้วต้องเปลี่ยนแค่ path ตามที่ Toy สั่ง
 
-    ปลายทางที่ยิงฝั่งช้างอยู่แล้วต้องเปลี่ยนแค่ path · เทสต์นี้เทียบกับของจริง
-    ไม่ใช่กับรายการที่พิมพ์ไว้เอง ฝั่งโน้นขยับเมื่อไหร่ที่นี่จะรู้ทันที
+    เทียบกับ `app.schemas.FrameIn` **ของจริง** ไม่ใช่รายการที่พิมพ์ไว้เอง
+    ฝั่งโน้นขยับเมื่อไหร่ที่นี่รู้ทันที
+
+    เดิมเทสต์นี้บังคับให้ "เท่ากันเป๊ะ" · คลายเป็น "ต้องรับได้ครบ" ตอนเพิ่ม
+    `client_request_id` ซึ่งเป็น optional · ของที่เพิ่มได้มีเงื่อนไขเดียว
+    **ต้องไม่บังคับ** ไม่งั้น body เดิมของฝั่งช้างจะยิงไม่ผ่าน ซึ่งผิดคำสัญญา
     """
     from app.schemas import FrameIn
     from people.schemas import PeopleFrameIn
-    assert set(PeopleFrameIn.model_fields) == set(FrameIn.model_fields)
+    ours, theirs = PeopleFrameIn.model_fields, FrameIn.model_fields
+    assert set(theirs) <= set(ours), f"รับของฝั่งช้างไม่ครบ: {set(theirs) - set(ours)}"
+    for name in set(ours) - set(theirs):
+        assert not ours[name].is_required(), f"{name} เป็นฟิลด์บังคับ ทำให้ body เดิมพัง"
 
 
 def test_frames_ตอบเต็มรูปแม้โมเดลล่ม_และบอกเหตุผลที่ระดับ_request():
@@ -346,3 +353,47 @@ def test_frames_บอกว่าภาพที่อ่านคือเฟ�
     from people.schemas import ImageInfo
     import typing
     assert "full_frame" in typing.get_args(ImageInfo.model_fields["source"].annotation)
+
+
+# ---------------------------------------------------------------- อ้างอิงกลับ
+# "ผู้ใช้จะรู้ได้ยังไงว่า response เป็นของตัวเอง" · คำถามของ Toy 2026-09-11
+
+def test_client_request_id_คืนกลับเป๊ะทั้งสองเส้น():
+    ref = "iplus-2026-09-11-000123"
+    d = client.post("/v1/persons", json={
+        "camera_id": "c", "client_request_id": ref, "note": "รอบบ่าย",
+        "objects": [{"id": "ID-1", "image_base64": _png()}]}).json()
+    assert d["client_request_id"] == ref
+    assert d["note"] == "รอบบ่าย"
+
+    f = client.post("/v1/frames", json={
+        "camera_id": "c", "image_base64": _png(), "client_request_id": ref}).json()
+    assert f["client_request_id"] == ref
+
+
+def test_ไม่ส่ง_client_request_id_มาก็ได้_เป็น_null():
+    """ของเดิมที่ยิงอยู่แล้วต้องไม่พังเพราะฟิลด์ใหม่"""
+    d = _post([{"id": "ID-1", "image_base64": _png()}])
+    assert d["client_request_id"] is None and d["note"] is None
+
+
+def test_ตามผลด้วยเลขอ้างอิงของตัวเองได้():
+    """เคสจริง: ยิงไปแล้ว timeout ไม่เคยเห็น request_id ของเรา"""
+    ref = "ref-timeout-case"
+    client.post("/v1/frames", json={"camera_id": "c", "image_base64": _png(),
+                                    "client_request_id": ref})
+    r = client.get(f"/v1/persons/by-ref/{ref}")
+    assert r.status_code == 200
+    j = r.json()
+    assert j["client_request_id"] == ref and j["matches"] >= 1
+    assert j["latest"]["request_id"]
+    assert client.get("/v1/persons/by-ref/ไม่เคยส่ง").status_code == 404
+
+
+def test_ส่ง_ref_ซ้ำ_ได้หลายผล_และบอกว่ากี่อัน():
+    """เราไม่การันตีว่าไม่ซ้ำ เพราะเลขนี้ไม่ใช่ของเรา · ต้องบอกตรงๆ ไม่ใช่แกล้งเลือกให้"""
+    ref = "ref-ซ้ำ"
+    for _ in range(2):
+        client.post("/v1/frames", json={"camera_id": "c", "image_base64": _png(),
+                                        "client_request_id": ref})
+    assert client.get(f"/v1/persons/by-ref/{ref}").json()["matches"] == 2

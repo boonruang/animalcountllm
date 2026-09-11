@@ -272,3 +272,45 @@ def test_where_มีเฉพาะเส้น_frames():
     """เส้น persons ปลายทางชี้เองอยู่แล้ว ไม่ต้องมีใครมาบอกว่าคนไหน"""
     d = _post([{"id": "ID-1", "image_base64": _png()}])
     assert d["persons"][0]["where"] == ""
+
+
+# ---------------------------------------------------------------- ยิงผิดเส้น
+# เจอจริง 2026-09-11: Toy ส่ง body แบบเฟรมเดียวมาที่ /v1/persons แล้วได้
+# `objects: Field required` ซึ่งถูกแต่ช่วยอะไรไม่ได้ · ทีมปลายทางจะเจอเหมือนกัน
+
+def test_ส่ง_body_แบบเฟรมมาที่_persons_ต้องบอกว่าไปผิดเส้น():
+    r = client.post("/v1/persons", json={"camera_id": "cam-01",
+                                         "image_base64": _png(), "note": "x"})
+    assert r.status_code == 422
+    j = r.json()
+    assert "/people/v1/frames" in j["hint"]
+    # detail ต้องเป็นรูปเดิมของ FastAPI ปลายทางที่ parse อยู่แล้วห้ามพัง
+    assert isinstance(j["detail"], list) and j["detail"][0]["type"] == "missing"
+
+
+def test_ส่ง_body_แบบ_objects_มาที่_frames_ต้องบอกว่าไปผิดเส้น():
+    r = client.post("/v1/frames", json={"camera_id": "c",
+                                        "objects": [{"id": "a", "image_base64": _png()}]})
+    assert r.status_code == 422
+    assert "/people/v1/persons" in r.json()["hint"]
+
+
+def test_เกินเพดานคนบอกว่าเกินเท่าไร():
+    r = client.post("/v1/persons", json={
+        "camera_id": "c",
+        "objects": [{"id": f"p{i}", "image_base64": _png(8, 8)} for i in range(20)]})
+    assert r.status_code == 422
+    assert "20" in r.json()["hint"]
+
+
+def test_frames_บอกว่าภาพที่อ่านคือเฟรมเต็ม_ไม่ใช่ครอปของใคร():
+    """🔴 เคยคืน object_image ซึ่งแปลว่า "ปลายทางครอปมาให้แล้ว" ซึ่งไม่จริง
+
+    ค่าที่ไม่มีให้เลือก ห้ามหยิบค่าที่ใกล้ที่สุดมาใส่แทน ทั้งฟิลด์จะเชื่อไม่ได้
+    """
+    r = client.post("/v1/frames", json={"camera_id": "c", "image_base64": _png(640, 480)})
+    assert r.status_code == 200
+    # โมเดลต่อไม่ติดในเทสต์นี้ persons จึงว่าง · ตรวจที่ schema แทนว่าค่าใหม่มีจริง
+    from people.schemas import ImageInfo
+    import typing
+    assert "full_frame" in typing.get_args(ImageInfo.model_fields["source"].annotation)

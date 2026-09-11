@@ -35,7 +35,9 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -48,7 +50,7 @@ from .store import PersonStore
 # 🔴 เลขนี้ต้องขยับทุกครั้งที่ **พฤติกรรมของ endpoint ฝั่งคน** เปลี่ยน
 # แยกจาก APP_VERSION ของฝั่งช้างโดยตั้งใจ สองงานนี้จะ deploy ไปด้วยกันก็จริง
 # แต่ปลายทางคนละทีม ต้องตอบได้ว่า "ของที่คุณเรียกอยู่เวอร์ชันอะไร" แยกกัน
-PEOPLE_VERSION = "0.2.0"
+PEOPLE_VERSION = "0.2.1"
 BUILD_NOTES = ("person attributes (gender, age band, appearance) via VLM"
                " · /v1/persons prompt p1 · /v1/frames prompt f1")
 
@@ -123,6 +125,42 @@ FRAME_MAX_PEOPLE = int(os.environ.get("PEOPLE_FRAME_MAX_PEOPLE", "12"))
 
 print(f"[people] v{PEOPLE_VERSION} store={STORE_DSN} provider={llm.provider} "
       f"model={llm.model} save_images={SAVE_IMAGES}", flush=True)
+
+
+@app.exception_handler(RequestValidationError)
+def explain_validation_error(request: Request, exc: RequestValidationError):
+    """422 ของ FastAPI บอกว่าฟิลด์ไหนหาย แต่ไม่บอกว่า "คุณมาผิดเส้น"
+
+    เจอจริง 2026-09-11: Toy ส่ง body แบบเฟรมเดียว (camera_id + image_base64)
+    มาที่ /v1/persons แล้วได้ `objects: Field required` ซึ่งถูกต้องแต่ช่วยอะไรไม่ได้
+    ทีมปลายทางจะเจอเรื่องเดียวกันแน่นอน เพราะสองเส้นนี้รับคนละรูป
+
+    🔴 ไม่แก้ด้วยการให้ /v1/persons รับ body แบบเฟรมเดียวแล้วเดาว่าเขาหมายถึงอะไร
+    endpoint ที่แอบทำงานคนละอย่างกับชื่อตัวเอง คือบั๊กที่หาไม่เจอทีหลัง
+    ตอบ 422 เหมือนเดิม ชนิดเดิม เพิ่มแค่ `hint` ที่บอกทางให้คน
+
+    `detail` ยังเป็นรูปเดิมเป๊ะเพื่อให้ปลายทางที่ parse อยู่แล้วไม่พัง
+    """
+    errors = exc.errors()
+    body = exc.body if isinstance(exc.body, dict) else {}
+    hint = ""
+    missing = {tuple(e.get("loc", ()))[-1] for e in errors if e.get("type") == "missing"}
+
+    if "objects" in missing and body.get("image_base64"):
+        hint = ("body นี้เป็นรูปของ POST /people/v1/frames (เฟรมเดียว ไม่มีใครถูกชี้) "
+                "แต่ยิงมาที่ /v1/persons ซึ่งต้องมี objects[] · "
+                "ยิงไปที่ /people/v1/frames แทน หรือใส่ objects พร้อม bbox ของแต่ละคน")
+    elif "image_base64" in missing and body.get("objects"):
+        hint = ("body นี้เป็นรูปของ POST /people/v1/persons แต่ยิงมาที่ /v1/frames "
+                "ซึ่งรับภาพเดียวชื่อ image_base64 · ยิงไปที่ /people/v1/persons แทน")
+    elif any(tuple(e.get("loc", ()))[-1] == "objects"
+             and e.get("type") == "too_long" for e in errors):
+        hint = (f"เกินเพดาน 16 คนต่อ request · แบ่งเป็นหลาย request "
+                f"(ส่งมา {len(body.get('objects') or [])} คน)")
+
+    return JSONResponse(status_code=422,
+                        content=jsonable_encoder({"detail": errors,
+                                                  **({"hint": hint} if hint else {})}))
 
 
 def _auth(key: Optional[str]) -> None:
@@ -429,7 +467,7 @@ def post_frame(body: PeopleFrameIn, x_api_key: Optional[str] = Header(default=No
 
     persons: List[PersonOut] = []
     rows = []
-    info = ImageInfo(w=frame_w, h=frame_h, source="object_image")
+    info = ImageInfo(w=frame_w, h=frame_h, source="full_frame")
     model_info = _model_info(res)
 
     if not res.usable:
@@ -477,7 +515,7 @@ def post_frame(body: PeopleFrameIn, x_api_key: Optional[str] = Header(default=No
                 # `where` ไปรวมกับ reason ในฐานข้อมูล ไม่ได้เพิ่มคอลัมน์ใหม่
                 # ตารางนี้เป็นของสำหรับไล่ดูย้อนหลัง ไม่ใช่สัญญากับปลายทาง
                 "reason": (f"where: {p.where}" if p.where else ""),
-                "image_w": frame_w, "image_h": frame_h, "image_source": "frame",
+                "image_w": frame_w, "image_h": frame_h, "image_source": "full_frame",
                 "image_path": None,
                 "llm_raw_response": res.raw,
                 "prompt_version": prompt_f1.PROMPT_VERSION,

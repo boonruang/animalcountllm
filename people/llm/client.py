@@ -17,7 +17,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
-from ..schemas import Appearance, Garment
+from ..schemas import Appearance, Emotion, Garment, GroupInfo, Uniform
 from . import prompt_f1, prompt_p1
 
 # ชุดค่าที่ยอมรับ · ดึงจาก Literal ใน schemas.py โดยตรง ไม่พิมพ์ซ้ำ
@@ -26,6 +26,33 @@ from . import prompt_f1, prompt_p1
 _GENDER = {"male", "female", "unknown"}
 _DIRECTION = {"in", "out", "unknown"}
 _AGE = {"0-12", "13-19", "20-29", "30-39", "40-49", "50-59", "60+", "unknown"}
+_NATIONALITY = {"thai", "asian_other", "western", "other", "unknown"}
+
+# 🔴 สวิตช์เดียวของทั้งระบบสำหรับเรื่องสัญชาติ · ค่าเริ่มต้นคือปิด
+#
+# ปิดอยู่ = prompt ไม่ถาม **และ** normalize บังคับเป็น unknown อีกชั้น
+# สองชั้นโดยตั้งใจ ไม่ใช่เผื่อเหนียว: วันหนึ่งจะมีคนแก้ prompt แล้วลืมสวิตช์
+# หรือโมเดลตอบฟิลด์ที่ไม่ได้ถามมาเอง (เจอมาแล้วกับ `where` ตอนทำ p1)
+# **ด่านที่มีชั้นเดียวคือด่านที่พังเงียบ**
+#
+# อ่านเหตุผลที่ปิดไว้ที่ schemas.Nationality ก่อนคิดจะเปิด
+ALLOW_NATIONALITY = os.environ.get("PEOPLE_ALLOW_NATIONALITY",
+                                   "false").strip().lower() == "true"
+
+# ช่วงชีวิตจากช่วงอายุ · คำนวณ ไม่ได้ถาม (ดู schemas.AgeGroup)
+_AGE_GROUP = {"0-12": "child", "13-19": "teen",
+              "20-29": "adult", "30-39": "adult",
+              "40-49": "adult", "50-59": "adult", "60+": "senior"}
+
+
+def age_group_of(age_range: str) -> str:
+    """child / teen / adult / senior จาก age_range ตัวเดียว
+
+    ค่านอกตารางเป็น unknown เสมอ · ฟังก์ชันนี้ไม่มีทางคืนค่าที่ขัดกับ age_range
+    เพราะมันอ่านจาก age_range ตัวเดียวและไม่มีอินพุตอื่น ซึ่งคือเหตุผลทั้งหมด
+    ที่ไม่ไปถามโมเดลเอา
+    """
+    return _AGE_GROUP.get(age_range, "unknown")
 
 
 def _allowed(model_cls, field: str) -> set:
@@ -72,11 +99,17 @@ class PersonLLM:
         # 🔴 300 ของฝั่งช้างไม่พอแน่นอน · คำตอบที่นี่มีราว 25 ฟิลด์
         # บวกคำบรรยายไทยอีกหนึ่งย่อหน้า (ภาษาไทยกิน token มากกว่าอังกฤษราวเท่าตัว)
         # วัดจริงแล้วปรับได้ แต่เริ่มจากเผื่อไว้ ดีกว่าโดน finish=length ทุกใบ
-        self.max_tokens = int(os.environ.get("PEOPLE_LLM_MAX_TOKENS", "700"))
+        # 700 -> 850 (2026-09-12) ตอนเพิ่ม uniform (4 คีย์) + group + สัญชาติ
+        # ราว +45 tok/คน · เผื่อไว้ ดีกว่าโดนตัดกลางแล้วเสียทั้งคน
+        self.max_tokens = int(os.environ.get("PEOPLE_LLM_MAX_TOKENS", "850"))
         # เส้น /v1/frames ตอบทุกคนในครั้งเดียว คำตอบยาวตามจำนวนคน ไม่คงที่เหมือน p1
         # วัดจริง 2026-09-11: สามคน 567 tok ≈ 190 tok/คน · เพดาน 12 คน = ~2,300
-        # ตั้ง 2500 เผื่อไว้ · โดน finish=length เมื่อไหร่ = เสียทั้งเฟรม ไม่ใช่เสียคนเดียว
-        self.frame_max_tokens = int(os.environ.get("PEOPLE_FRAME_MAX_TOKENS", "2500"))
+        #
+        # 🔴 2500 -> 3500 (2026-09-12) · uniform + group ทำให้เป็นราว 240 tok/คน
+        # 240 x 12 = 2,880 ซึ่ง **ทะลุ 2500 เดิม** แปลว่าถ้าไม่ขยับพร้อมกับ prompt
+        # เฟรมที่มีคนเยอะจะโดน finish=length แล้ว **เสียทั้งเฟรม ไม่ใช่เสียคนเดียว**
+        # และอาการที่เห็นคือ degraded ลอยๆ ไม่ได้ชี้มาที่ prompt ที่เพิ่งแก้เลย
+        self.frame_max_tokens = int(os.environ.get("PEOPLE_FRAME_MAX_TOKENS", "3500"))
         self.timeout = float(os.environ.get("LLM_TIMEOUT_S", "25"))
         # 🔴 ค่าเริ่มต้นของ langchain คือ retry 2 ครั้ง ซึ่งแปลว่าตอน OpenRouter ล่ม
         # คนหนึ่งคนกิน 3 เท่าของ timeout ก่อนจะยอมแพ้ (75 วิ ที่ timeout 25)
@@ -97,7 +130,8 @@ class PersonLLM:
     # ---------------------------------------------------------------- call
     def describe(self, image_b64: str, object_id: str, w: int, h: int,
                  camera_id: str = "unknown", image_hash: str = "") -> PersonResult:
-        system, user = prompt_p1.build(object_id, w, h, camera_id)
+        system, user = prompt_p1.build(object_id, w, h, camera_id,
+                                       nationality=ALLOW_NATIONALITY)
         return self._invoke(system, user, image_b64, image_hash,
                             prompt_p1.PROMPT_VERSION, self.max_tokens,
                             {"object_id": object_id, "crop": f"{w}x{h}"},
@@ -111,7 +145,8 @@ class PersonLLM:
         คำตอบยาวตามจำนวนคน ต่างจาก p1 ที่ยาวคงที่ · โควตา token จึงต้องคนละตัว
         วัดจริง 2026-09-11 กับเฟรมสามคน: 567 tok ที่ราว 190 tok/คน
         """
-        system, user = prompt_f1.build(w, h, camera_id, cap)
+        system, user = prompt_f1.build(w, h, camera_id, cap,
+                                       nationality=ALLOW_NATIONALITY)
         return self._invoke(system, user, image_b64, image_hash,
                             prompt_f1.PROMPT_VERSION, self.frame_max_tokens,
                             {"frame": f"{w}x{h}", "cap": cap}, "describe_frame")
@@ -267,12 +302,117 @@ def _garment(raw: Any) -> Garment:
     )
 
 
-def normalize(data: Dict[str, Any]) -> Dict[str, Any]:
+def _uniform(raw: Any) -> Uniform:
+    """เครื่องแบบ · `none` (ไม่ได้ใส่) กับ `unknown` (ดูไม่ออก) ห้ามยุบเป็นอันเดียว
+
+    `_pick` คืน default เป็น "unknown" อยู่แล้วเมื่อค่านอกชุด ซึ่งถูกต้องที่นี่:
+    โมเดลตอบ "staff uniform" มา เราไม่รู้ว่าหมายถึงอะไร = ดูไม่ออก
+    ไม่ใช่ = ไม่ได้ใส่ · เดาไปทาง none คือการลบคนใส่เครื่องแบบออกจากยอดนับเงียบๆ
+    """
+    d = raw if isinstance(raw, dict) else {}
+    return Uniform(
+        kind=_pick(d.get("kind"), _allowed(Uniform, "kind")),
+        color=_pick(d.get("color"), _allowed(Uniform, "color")),
+        id_badge=_pick(d.get("id_badge"), _allowed(Uniform, "id_badge")),
+        # ข้อความบนชุดเป็น free text โดยตั้งใจ ("SECURITY", "รปภ.", ชื่อบริษัท)
+        # ชุดค่าปิดตรงนี้คือการทิ้งหลักฐานที่ดีที่สุดที่เรามี
+        text=str(d.get("text") or "").strip()[:40],
+    )
+
+
+# สีหน้าแต่ละแบบตกอยู่ช่วงไหนของสเกล 1-5 (1 = bad, 5 = very happy)
+# ใช้ตอนโมเดลตอบ label มาแต่ไม่ตอบเลข หรือตอบเลขที่ขัดกับ label ของตัวเอง
+_EMOTION_VALENCE = {"happy": 4, "neutral": 3, "surprise": 3,
+                    "sad": 2, "fear": 2, "disgust": 2, "angry": 1}
+# ช่วงที่ label หนึ่งๆ อยู่ได้ · นอกช่วงนี้คือคำตอบที่ขัดกับตัวเอง
+# surprise กว้างกว่าตัวอื่นเพราะ "ตกใจดีใจ" กับ "ตกใจกลัว" หน้าเหมือนกันมาก
+_EMOTION_RANGE = {"happy": (4, 5), "neutral": (3, 3), "surprise": (2, 4),
+                  "sad": (1, 2), "fear": (1, 2), "disgust": (1, 2),
+                  "angry": (1, 2)}
+
+# โมเดลชอบตอบรูป adjective ("surprised") ทั้งที่เราขอ noun ตาม FER2013
+# 🔴 ทิ้งไปเป็น unknown คือการโยนคำตอบที่ถูกแล้วทิ้งเพราะสะกดคนละแบบ
+# ซึ่งคือบั๊กเดียวกับ `laptop` เป๊ะ · เรื่องเดียวกับ gray/grey ที่รับไว้อยู่แล้ว
+_EMOTION_ALIAS = {"surprised": "surprise", "fearful": "fear", "afraid": "fear",
+                  "scared": "fear", "disgusted": "disgust", "happiness": "happy",
+                  "sadness": "sad", "anger": "angry", "calm": "neutral"}
+
+
+def _emotion(raw: Any) -> Emotion:
+    """สีหน้า + สเกล 1-5 · **บังคับให้ label กับ valence ไม่ขัดกันเอง**
+
+    🔴 โมเดลตอบ `{"label":"happy","valence":1}` ได้สบายๆ และนั่นคือคำตอบที่
+    ปลายทางเอาไปทำอะไรต่อไม่ได้เลย ต้องเลือกว่าจะเชื่ออันไหน
+    **เราเชื่อ label** เพราะมันคือสิ่งที่โมเดลมองเห็น ส่วนตัวเลขคือสิ่งที่มันต้อง
+    แปลงเอง ซึ่งเป็นงานคนละชนิดและเป็นงานที่มันพลาดบ่อยกว่า (เรื่องเดียวกับ
+    group.size ที่เราไม่ให้มันนับ) · valence ที่หลุดช่วงของ label ถูกดึงกลับเข้าช่วง
+    ไม่ใช่ทิ้งทั้งก้อน
+
+    ไม่มี label = ไม่มีอารมณ์ให้รายงาน = unknown/0 **ไม่ใช่ neutral/3**
+    "มองไม่เห็นหน้า" กับ "หน้าเฉยๆ" คนละเรื่องกันคนละชั้น เหมือน unknown กับ degraded
+    """
+    d = raw if isinstance(raw, dict) else {}
+    raw_label = str(d.get("label") or "").strip().lower()
+    label = _pick(_EMOTION_ALIAS.get(raw_label, raw_label),
+                  _allowed(Emotion, "label"))
+    if label == "unknown":
+        return Emotion()
+    try:
+        valence = int(round(float(d.get("valence"))))
+    except (TypeError, ValueError):
+        valence = _EMOTION_VALENCE[label]
+    lo, hi = _EMOTION_RANGE[label]
+    valence = max(lo, min(hi, valence))
+    return Emotion(label=label, valence=valence,
+                   confidence=_conf(d.get("confidence")))
+
+
+def _group_ref(raw: Any) -> str:
+    """เลขกลุ่มดิบจากโมเดล · ขนาดกลุ่มยังไม่รู้ตรงนี้ ต้องเห็นครบทุกคนก่อน
+
+    ค่าว่าง = โมเดลไม่ได้ตอบ ซึ่งแปลว่า "ไม่รู้" ไม่ใช่ "เดินคนเดียว"
+    """
+    v = str(raw or "").strip()[:16]
+    return v if v and v.lower() not in {"unknown", "none", "null", "n/a"} else ""
+
+
+def apply_groups(normalized: list) -> None:
+    """เติม `size` กับ `type` ให้ทุกคน หลังเห็นครบทั้งเฟรมแล้ว · แก้ในที่
+
+    🔴 **เรานับเอง ไม่ให้โมเดลนับ** เหตุผลเดียวกับที่ฝั่งช้างให้ CV นับ ไม่ให้ VLM นับ:
+    โมเดลบอก "เขามากับผู้หญิงคนนั้น" ได้ดี แต่บอก "กลุ่มนี้มี 3 คน" ได้ไม่คงเส้นคงวา
+    มันแปะป้ายเหมือนกันให้สองคน แล้วเขียนว่า size 3 ได้สบายๆ ในคำตอบเดียวกัน
+    ป้ายคือสิ่งที่มันทำได้ การนับคือสิ่งที่เราทำได้ ต่างคนต่างทำส่วนที่ตัวเองไม่พลาด
+
+    คนที่ไม่มี ref (โมเดลไม่ตอบ) เป็น unknown ไม่ใช่ alone · ดู GroupType
+    """
+    counts: Dict[str, int] = {}
+    for n in normalized:
+        ref = n["group"].ref
+        if ref:
+            counts[ref] = counts.get(ref, 0) + 1
+    for n in normalized:
+        ref = n["group"].ref
+        if not ref:
+            continue
+        size = counts[ref]
+        n["group"].size = size
+        n["group"].type = ("alone" if size == 1 else
+                           "pair" if size == 2 else "group_3_plus")
+
+
+def normalize(data: Dict[str, Any], with_group: bool = False) -> Dict[str, Any]:
     """เปลี่ยนคำตอบดิบของโมเดลให้เป็นค่าที่ schema ยอมรับ
 
     🔴 ทุกอย่างในนี้คือการ "ลดทอน" ไม่ใช่การ "เติม"
     ฟิลด์ไหนที่โมเดลไม่ตอบหรือตอบนอกชุด จะกลายเป็น unknown เสมอ
     ห้ามมีบรรทัดไหนในไฟล์นี้เดาค่าขึ้นมาแทนโมเดล
+    (`age_group` ไม่ใช่ข้อยกเว้น มันคือ `age_range` ที่หยาบลง ไม่ใช่ค่าใหม่)
+
+    `with_group` เปิดเฉพาะเส้น `/v1/frames` ที่โมเดลเห็นทุกคนพร้อมกัน
+    เส้น `/v1/persons` ปิดไว้ **แม้โมเดลจะตอบ `group` มาเองก็ทิ้ง** เพราะมันเห็น
+    คนเดียวจะรู้ได้ยังไงว่าใครมาด้วยกัน · ค่าที่ฟังดูมีความหมายแต่ไม่มีฐานอะไรรองรับ
+    แย่กว่าช่องว่าง (เรื่องเดิมกับ `where` ที่เส้น persons บังคับเป็น "")
     """
     ap_raw = data.get("appearance") if isinstance(data.get("appearance"), dict) else {}
 
@@ -292,8 +432,10 @@ def normalize(data: Dict[str, Any]) -> Dict[str, Any]:
         bottom=_garment(ap_raw.get("bottom")),
         footwear=_garment(ap_raw.get("footwear")),
         carrying=_carrying(ap_raw.get("carrying")),
+        uniform=_uniform(ap_raw.get("uniform")),
         distinctive=str(ap_raw.get("distinctive") or "")[:200],
     )
+    age_range = _pick(data.get("age_range"), _AGE)
     return {
         # 🔴 ค่านอกชุดเป็น unknown เหมือนทุกช่อง · ห้ามแปลง "entering"/"เข้า" ให้เอง
         # ถ้าโมเดลตอบนอกชุดบ่อย ให้ไปแก้ prompt ไม่ใช่มาเดาความหมายตรงนี้
@@ -301,8 +443,19 @@ def normalize(data: Dict[str, Any]) -> Dict[str, Any]:
         "direction_confidence": _conf(data.get("direction_confidence")),
         "gender": _pick(data.get("gender"), _GENDER),
         "gender_confidence": _conf(data.get("gender_confidence")),
-        "age_range": _pick(data.get("age_range"), _AGE),
+        "age_range": age_range,
         "age_range_confidence": _conf(data.get("age_range_confidence")),
+        # คำนวณจาก age_range ที่ลดทอนแล้ว ไม่ใช่จากที่โมเดลตอบดิบ
+        # ("ประมาณ 35 ปี" -> age_range unknown -> age_group unknown ตามกันไป)
+        "age_group": age_group_of(age_range),
+        # 🔴 ชั้นที่สองของสวิตช์สัญชาติ · ปิดอยู่ = unknown เสมอ ไม่ว่าโมเดลตอบอะไรมา
+        "nationality": (_pick(data.get("nationality"), _NATIONALITY)
+                        if ALLOW_NATIONALITY else "unknown"),
+        "nationality_confidence": (_conf(data.get("nationality_confidence"))
+                                   if ALLOW_NATIONALITY else 0.0),
+        "group": (GroupInfo(ref=_group_ref(data.get("group")))
+                  if with_group else GroupInfo()),
+        "emotion": _emotion(data.get("emotion")),
         "appearance": appearance,
         "appearance_confidence": _conf(data.get("appearance_confidence")),
         "description": str(data.get("description") or "").strip()[:600],

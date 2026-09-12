@@ -218,47 +218,37 @@ let boxes = [];      // [x,y,w,h] ในพิกัดจริงของภ�
 let natural = {w:0, h:0};
 let objUrl = null, done = 0;
 
-const G   = { male:'ชาย', female:'หญิง', unknown:'ระบุไม่ได้' };
-const DIR = { in:'เข้า', out:'ออก', unknown:'ไม่แน่ใจ' };
-const DIRC= { in:'success', out:'danger', unknown:'secondary' };
-const DIRI= { in:'box-arrow-in-right', out:'box-arrow-right', unknown:'question-lg' };
-const YN  = { yes:'ใช่', no:'ไม่', unknown:'ไม่แน่ใจ' };
-const SKIN= { light:'ผิวขาว', medium:'ผิวสองสี', tan:'ผิวแทน', dark:'ผิวเข้ม', unknown:'ไม่แน่ใจ' };
-const BUILD={ slim:'ผอม', average:'ปานกลาง', heavy:'ท้วม', unknown:'ไม่แน่ใจ' };
-const HT  = { short:'เตี้ย', average:'ปานกลาง', tall:'สูง', unknown:'ไม่แน่ใจ' };
-const HAIR= { bald:'ศีรษะล้าน', very_short:'สั้นมาก', short:'สั้น', medium:'ประบ่า',
-              long:'ยาว', tied_back:'รวบผม', covered:'คลุมผม', unknown:'ไม่แน่ใจ' };
-const HC  = { black:'ดำ', dark_brown:'น้ำตาลเข้ม', brown:'น้ำตาล', blonde:'บลอนด์',
-              grey:'ดอกเลา', white:'ขาว', dyed_other:'ย้อมสีอื่น', unknown:'ไม่แน่ใจ' };
-const COL = { black:'ดำ', white:'ขาว', grey:'เทา', red:'แดง', orange:'ส้ม', yellow:'เหลือง',
-              green:'เขียว', blue:'ฟ้า', navy:'น้ำเงินเข้ม', purple:'ม่วง', pink:'ชมพู',
-              brown:'น้ำตาล', beige:'เบจ', cream:'ครีม', gold:'ทอง', silver:'เงิน',
-              multicolour:'หลายสี', unknown:'ไม่แน่ใจ' };
-const HEX = { black:'#000', white:'#fff', grey:'#888', red:'#dc3545', orange:'#fd7e14',
-              yellow:'#ffc107', green:'#198754', blue:'#0dcaf0', navy:'#0a2a66',
-              purple:'#6f42c1', pink:'#e685b5', brown:'#7a4b2a', beige:'#e8dcc0',
-              cream:'#f7f0dd', gold:'#d4af37', silver:'#c0c0c0',
-              multicolour:'linear-gradient(90deg,#dc3545,#ffc107,#198754)', unknown:'transparent' };
-const TOP = { t_shirt:'เสื้อยืด', shirt:'เสื้อเชิ้ต', polo:'เสื้อโปโล', blouse:'เสื้อผู้หญิง',
-              jacket:'แจ็กเก็ต', suit_jacket:'สูท', coat:'เสื้อโค้ท', hoodie:'ฮู้ด',
-              sweater:'เสื้อไหมพรม', vest:'เสื้อกั๊ก', dress:'ชุดเดรส', uniform:'ชุดยูนิฟอร์ม',
-              other:'อื่นๆ', unknown:'ไม่แน่ใจ' };
-const BOT = { trousers:'กางเกงสแลค', jeans:'ยีนส์', shorts:'กางเกงขาสั้น', skirt:'กระโปรง',
-              dress:'ชุดเดรส', uniform:'ชุดยูนิฟอร์ม', other:'อื่นๆ', unknown:'ไม่แน่ใจ' };
-const FW  = { sneakers:'รองเท้าผ้าใบ', leather_shoes:'รองเท้าหนัง', boots:'บู๊ท',
-              sandals:'รองเท้าแตะรัดส้น', heels:'ส้นสูง', slippers:'รองเท้าแตะ',
-              other:'อื่นๆ', unknown:'ไม่แน่ใจ' };
-const SLV = { sleeveless:'แขนกุด', short:'แขนสั้น', long:'แขนยาว', unknown:'ไม่แน่ใจ' };
-const PAT = { plain:'สีพื้น', striped:'ลายทาง', checked:'ลายตาราง', printed:'ลายพิมพ์',
-              logo:'มีโลโก้', unknown:'ไม่แน่ใจ' };
-const OUT = { jacket:'แจ็กเก็ต', suit_jacket:'สูท', blazer:'เบลเซอร์', coat:'เสื้อโค้ท',
-              cardigan:'คาร์ดิแกน', hoodie:'ฮู้ด', vest:'เสื้อกั๊ก', uniform:'ชุดยูนิฟอร์ม',
-              none:'ไม่ได้ใส่', unknown:'ไม่แน่ใจ' };
-const CAR = { backpack:'เป้', shoulder_bag:'กระเป๋าสะพาย', handbag:'กระเป๋าถือ',
-              tote:'ถุงผ้า', shopping_bag:'ถุงช้อปปิ้ง', luggage:'กระเป๋าเดินทาง',
-              phone:'โทรศัพท์', laptop:'แล็ปท็อป', tablet:'แท็บเล็ต', document:'เอกสาร',
-              umbrella:'ร่ม', lanyard:'สายคล้องคอ', badge:'บัตรพนักงาน', box:'กล่อง',
-              other:'อื่นๆ' };
+// 🔴 ค่าที่ API ส่งมา **เป็นภาษาไทยแล้ว** (Toy สั่ง 2026-09-12 · แปลใน people/th.py)
+//
+// หน้านี้เคยมีตารางแปล อังกฤษ->ไทย ของตัวเองครบทุกฟิลด์ **ถอดทิ้งแล้วทั้งชุด**
+// เพราะพอ API แปลให้แล้ว ตารางนั้นกลายเป็นตารางแปลชุดที่สองทันที
+// สองชุดที่ต้องตรงกันแต่แก้คนละไฟล์ จะไม่ตรงกันภายในเดือนเดียว (บทเรียน `laptop`)
+// ตอนนี้หน้านี้ **พิมพ์ค่าที่ได้มาตรงๆ** ไม่แปลอะไรอีก
+//
+// เหลือไว้เฉพาะตารางที่ **ไม่ใช่คำแปล** คือสี ไอคอน และป้ายสถานะ ซึ่งต้องรู้ค่าถึงจะเลือกได้
+// เลยต้องคีย์ด้วยคำไทย · `test_คำไทยในหน้า_verify_ต้องตรงกับ_people_th` เฝ้าให้ตรงกัน
+const T = {
+  unknown: 'ไม่ทราบ', noFace: 'มองไม่เห็นหน้า',
+  noUniform: 'ไม่ได้ใส่เครื่องแบบ', noOuter: 'ไม่ได้ใส่ทับ',
+  plain: 'สีพื้น', has: 'มี',
+};
+const DIRC= { 'เข้า':'success', 'ออก':'danger', 'ไม่ทราบ':'secondary' };
+const DIRI= { 'เข้า':'box-arrow-in-right', 'ออก':'box-arrow-right',
+              'ไม่ทราบ':'question-lg' };
+// สเกล 1-5 · 1 = bad, 5 = very happy (Toy เคาะ 2026-09-12) · 0 = มองไม่เห็นหน้า
+const EMOC= { 0:'secondary', 1:'danger', 2:'warning', 3:'secondary', 4:'success',
+              5:'success' };
+const EMOI= { 'เป็นกลาง':'emoji-neutral', 'มีความสุข':'emoji-smile',
+              'เศร้า':'emoji-frown', 'โกรธ':'emoji-angry',
+              'ประหลาดใจ':'emoji-surprise', 'กลัว':'emoji-frown',
+              'รังเกียจ':'emoji-frown', 'มองไม่เห็นหน้า':'question-lg' };
+const HEX = { 'ดำ':'#000', 'ขาว':'#fff', 'เทา':'#888', 'แดง':'#dc3545',
+              'ส้ม':'#fd7e14', 'เหลือง':'#ffc107', 'เขียว':'#198754',
+              'ฟ้า':'#0dcaf0', 'น้ำเงิน':'#0a2a66', 'ม่วง':'#6f42c1',
+              'ชมพู':'#e685b5', 'น้ำตาล':'#7a4b2a', 'เบจ':'#e8dcc0',
+              'ครีม':'#f7f0dd', 'ทอง':'#d4af37', 'เงิน':'#c0c0c0',
+              'หลายสี':'linear-gradient(90deg,#dc3545,#ffc107,#198754)',
+              'ไม่ทราบ':'transparent' };
 const BADGE = { ok:'success', partial:'warning', degraded:'warning', error:'danger' };
 const PBADGE= { ok:'success', degraded:'warning', error:'danger' };
 
@@ -476,8 +466,8 @@ function dashboard(j) {
                               : `อ่านไม่ได้ ${ps.length - ok.length} คน`);
 
   const s = j.summary || {};
-  const m = ok.filter(p => p.gender === 'male').length;
-  const f = ok.filter(p => p.gender === 'female').length;
+  const m = ok.filter(p => p.gender === 'ชาย').length;
+  const f = ok.filter(p => p.gender === 'หญิง').length;
   box('b-gender', ok.length ? 'bg-primary-lte' : 'bg-muted-lte',
       ok.length ? `${s.direction_in ?? 0}/${s.direction_out ?? 0}` : '–',
       ok.length ? `เข้า ${s.direction_in ?? 0} · ออก ${s.direction_out ?? 0}` +
@@ -506,21 +496,18 @@ function bar(v, label) {
     <span class="small" style="min-width:2.5rem">${pct}%</span></div>`;
 }
 
-function colorCell(c, map) {
-  const bg = HEX[c] ?? 'transparent';
-  const style = bg.startsWith('linear') ? `background:${bg}` : `background:${bg}`;
-  return `<span class="sw" style="${style}"></span>${map[c] ?? esc(c)}`;
+function colorCell(c) {
+  return `<span class="sw" style="background:${HEX[c] ?? 'transparent'}"></span>${esc(c)}`;
 }
 
-function garment(g, typeMap) {
-  if (!g) return 'ไม่แน่ใจ';
-  const bits = [typeMap[g.type] ?? esc(g.type)];
-  if (g.color && g.color !== 'unknown') bits.push('สี' + (COL[g.color] ?? esc(g.color)));
-  if (g.secondary_color && g.secondary_color !== 'unknown')
-    bits.push('ตัด' + (COL[g.secondary_color] ?? esc(g.secondary_color)));
-  if (g.pattern && g.pattern !== 'unknown' && g.pattern !== 'plain')
-    bits.push(PAT[g.pattern] ?? esc(g.pattern));
-  const sw = g.color && g.color !== 'unknown'
+function garment(g) {
+  if (!g) return T.unknown;
+  const known = v => v && v !== T.unknown;
+  const bits = [esc(g.type)];
+  if (known(g.color)) bits.push('สี' + esc(g.color));
+  if (known(g.secondary_color)) bits.push('ตัด' + esc(g.secondary_color));
+  if (known(g.pattern) && g.pattern !== T.plain) bits.push(esc(g.pattern));
+  const sw = known(g.color)
     ? `<span class="sw" style="background:${HEX[g.color] ?? 'transparent'}"></span>` : '';
   return sw + bits.join(' ');
 }
@@ -536,14 +523,26 @@ function person(p) {
       </div></div>`;
   }
   const a = p.appearance || {};
-  const carry = (a.carrying || []).map(c => `<span class="chip">${CAR[c] ?? esc(c)}</span>`).join('');
+  const u = a.uniform || {};
+  const e = p.emotion || {};
+  const carry = (a.carrying || []).map(c => `<span class="chip">${esc(c)}</span>`).join('');
   return `<div class="person-card">
     <div class="ph">
       <span><span class="pid">${esc(p.id)}</span>
         <span class="badge text-bg-${DIRC[p.direction] ?? 'secondary'} ms-2">
-          <i class="bi bi-${DIRI[p.direction] ?? 'question-lg'} me-1"></i>${DIR[p.direction] ?? esc(p.direction)}</span>
-        <span class="badge text-bg-primary">${G[p.gender] ?? esc(p.gender)}</span>
-        <span class="badge text-bg-secondary">อายุ ${esc(p.age_range)} ปี</span></span>
+          <i class="bi bi-${DIRI[p.direction] ?? 'question-lg'} me-1"></i>${esc(p.direction)}</span>
+        <span class="badge text-bg-primary">${esc(p.gender)}</span>
+        <span class="badge text-bg-secondary">อายุ ${esc(p.age_range)} ปี${
+          p.age_group && p.age_group !== T.unknown ? ` · ${esc(p.age_group)}` : ''}</span>
+        ${e.label && e.label !== T.noFace ? `<span class="badge text-bg-${EMOC[e.valence] ?? 'secondary'}">
+          <i class="bi bi-${EMOI[e.label] ?? 'emoji-neutral'} me-1"></i>${esc(e.label)} ${e.valence}/5</span>` : ''}
+        ${u.kind && u.kind !== T.unknown && u.kind !== T.noUniform
+          ? `<span class="badge text-bg-dark"><i class="bi bi-person-badge me-1"></i>${esc(u.kind)}${
+              u.text ? ` &ldquo;${esc(u.text)}&rdquo;` : ''}</span>` : ''}
+        ${p.group && p.group.type !== T.unknown
+          ? `<span class="badge text-bg-light text-dark"><i class="bi bi-people me-1"></i>${esc(p.group.type)}</span>` : ''}
+        ${p.nationality && p.nationality !== T.unknown
+          ? `<span class="badge text-bg-light text-dark" title="ค่าประมาณจากรูปลักษณ์ ไม่ใช่สัญชาติจริง">${esc(p.nationality)} ?</span>` : ''}</span>
       <span class="badge text-bg-${PBADGE[p.status]}">${esc(p.status)}</span>
     </div>
     <div class="p-3">
@@ -554,23 +553,27 @@ function person(p) {
          <b>จุดสังเกต:</b> ${esc(a.distinctive)}</div>` : ''}
       <div class="row g-3">
         <div class="col-md-6"><table class="table table-sm attr mb-0"><tbody>
-          <tr><th>สีผิว</th><td>${SKIN[a.skin_tone] ?? esc(a.skin_tone)}</td></tr>
-          <tr><th>รูปร่าง</th><td>${BUILD[a.build] ?? esc(a.build)}</td></tr>
-          <tr><th>ส่วนสูง</th><td>${HT[a.height] ?? esc(a.height)}</td></tr>
-          <tr><th>ทรงผม</th><td>${HAIR[a.hair_length] ?? esc(a.hair_length)}</td></tr>
-          <tr><th>สีผม</th><td>${colorCell(a.hair_color, HC)}</td></tr>
-          <tr><th>แว่นตา</th><td>${YN[a.glasses] ?? esc(a.glasses)}</td></tr>
+          <tr><th>สีผิว</th><td>${esc(a.skin_tone)}</td></tr>
+          <tr><th>รูปร่าง</th><td>${esc(a.build)}</td></tr>
+          <tr><th>ส่วนสูง</th><td>${esc(a.height)}</td></tr>
+          <tr><th>ทรงผม</th><td>${esc(a.hair_length)}</td></tr>
+          <tr><th>สีผม</th><td>${colorCell(a.hair_color)}</td></tr>
+          <tr><th>แว่นตา</th><td>${esc(a.glasses)}</td></tr>
         </tbody></table></div>
         <div class="col-md-6"><table class="table table-sm attr mb-0"><tbody>
-          <tr><th>หน้ากากอนามัย</th><td>${YN[a.face_mask] ?? esc(a.face_mask)}</td></tr>
-          <tr><th>หนวดเครา</th><td>${YN[a.facial_hair] ?? esc(a.facial_hair)}</td></tr>
-          <tr><th>หมวก</th><td>${YN[a.headwear] ?? esc(a.headwear)}</td></tr>
-          <tr><th>เสื้อ</th><td>${garment(a.top, TOP)}
-              <span class="text-muted">· ${SLV[a.top_sleeve] ?? ''}</span></td></tr>
-          <tr><th>เสื้อคลุม</th><td>${a.outer && a.outer.type === 'none'
-              ? '<span class="text-muted">ไม่ได้ใส่</span>' : garment(a.outer, OUT)}</td></tr>
-          <tr><th>กางเกง/กระโปรง</th><td>${garment(a.bottom, BOT)}</td></tr>
-          <tr><th>รองเท้า</th><td>${garment(a.footwear, FW)}</td></tr>
+          <tr><th>หน้ากากอนามัย</th><td>${esc(a.face_mask)}</td></tr>
+          <tr><th>หนวดเครา</th><td>${esc(a.facial_hair)}</td></tr>
+          <tr><th>หมวก</th><td>${esc(a.headwear)}</td></tr>
+          <tr><th>เสื้อ</th><td>${garment(a.top)}
+              <span class="text-muted">· ${esc(a.top_sleeve)}</span></td></tr>
+          <tr><th>เสื้อคลุม</th><td>${a.outer && a.outer.type === T.noOuter
+              ? '<span class="text-muted">ไม่ได้ใส่ทับ</span>' : garment(a.outer)}</td></tr>
+          <tr><th>กางเกง/กระโปรง</th><td>${garment(a.bottom)}</td></tr>
+          <tr><th>รองเท้า</th><td>${garment(a.footwear)}</td></tr>
+          <tr><th>เครื่องแบบ</th><td>${esc(u.kind ?? '')}${
+              u.color && u.color !== T.unknown ? ` <span class="text-muted">(${esc(u.color)})</span>` : ''}${
+              u.text ? ` <span class="chip">${esc(u.text)}</span>` : ''}${
+              u.id_badge === T.has ? ' <span class="chip">มีป้ายชื่อ</span>' : ''}</td></tr>
         </tbody></table></div>
       </div>
       ${carry ? `<div class="mt-2"><span class="text-muted small me-2">ถือ/สะพาย:</span>${carry}</div>` : ''}
@@ -579,6 +582,7 @@ function person(p) {
         ${bar(p.gender_confidence, 'เพศ')}
         ${bar(p.age_range_confidence, 'ช่วงอายุ')}
         ${bar(p.appearance_confidence, 'รูปพรรณ')}
+        ${e.label && e.label !== T.noFace ? bar(e.confidence, 'อารมณ์') : ''}
       </div>
       ${p.reason ? `<div class="small text-muted mt-2">หมายเหตุจากโมเดล: ${esc(p.reason)}</div>` : ''}
       <div class="small text-muted mt-2">
@@ -586,6 +590,32 @@ function person(p) {
         ${p.image && p.image.bbox_used ? `· กรอบที่ครอปจริง [${p.image.bbox_used.join(', ')}]` : ''}
         · ${(p.timing_ms/1000).toFixed(1)} วิ</div>
     </div></div>`;
+}
+
+// สรุปประชากรของเฟรมนี้ · ทุกชุดบวกได้ครบจำนวนคนเสมอ (ดู main._demographic_counts)
+// 🔴 แสดง "ไม่แน่ใจ" ด้วยทุกชุด ไม่ใช่ซ่อน · ยอดที่ดูครบทั้งที่ไม่ครบ คือยอดที่หลอกคนอ่าน
+function demo(s) {
+  const n = s.people_found ?? s.ok ?? 0;
+  if (!n) return '';
+  const row = (label, parts) => {
+    const shown = parts.filter(([, v]) => v > 0)
+      .map(([k, v]) => `<span class="chip">${k} ${v}</span>`).join('');
+    return shown ? `<tr><th>${label}</th><td>${shown}</td></tr>` : '';
+  };
+  return `<table class="table table-sm mb-3"><tbody class="attr">
+    ${row('ช่วงวัย', [['เด็ก', s.age_child], ['วัยรุ่น', s.age_teen],
+                      ['ผู้ใหญ่', s.age_adult], ['สูงอายุ', s.age_senior],
+                      ['ไม่แน่ใจ', s.age_unknown]])}
+    ${row('เพศ', [['ชาย', s.gender_male], ['หญิง', s.gender_female],
+                  ['ไม่แน่ใจ', s.gender_unknown]])}
+    ${row('อารมณ์', [['ดี 4-5', s.emotion_positive], ['เฉยๆ 3', s.emotion_neutral],
+                     ['ไม่ดี 1-2', s.emotion_negative],
+                     ['มองไม่เห็นหน้า', s.emotion_unknown]])}
+    ${row('เครื่องแบบ', [['ใส่เครื่องแบบ', s.in_uniform],
+                         ['ไม่แน่ใจ', s.uniform_unknown]])}
+    ${row('มาด้วยกัน', [['คนเดียว', s.group_alone], ['คู่', s.group_pair],
+                        ['3 คนขึ้นไป', s.group_3_plus], ['ไม่ทราบ', s.group_unknown]])}
+  </tbody></table>`;
 }
 
 function render(j) {
@@ -596,7 +626,7 @@ function render(j) {
     : ((j.persons || []).length ? '' :
        '<div class="alert alert-secondary py-2 mb-3">ไม่พบคนในเฟรมนี้ ' +
        '<span class="text-muted">(เป็นคำตอบจริง ไม่ใช่ระบบพัง)</span></div>');
-  out.innerHTML = head + (j.persons || []).map(person).join('') + `
+  out.innerHTML = head + (j.persons || []).map(person).join('') + demo(j.summary || {}) + `
     <table class="table table-sm mb-3">
       <tbody class="attr">
         <tr><th>กล้อง</th><td>${esc(j.camera_id)}</td></tr>

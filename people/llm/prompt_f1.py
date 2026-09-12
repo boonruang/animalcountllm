@@ -19,25 +19,61 @@ f1 ได้ทั้งเฟรม หน้าที่คือ "มีใ�
 ตำแหน่งจึงขอเป็น **ข้อความ** (`where`) ซึ่งเป็นสิ่งที่มันทำได้จริง
 คนอ่านแล้วชี้ตัวถูก ส่วนโปรแกรมจับคู่กับ track id ไม่ได้ **ซึ่งเป็นราคาที่รู้ล่วงหน้า
 ไม่ใช่เซอร์ไพรส์** ปลายทางที่ต้องผูก id ให้ใช้ /v1/persons พร้อม bbox แทน
+
+🔴🔴 กฎเรื่อง overlay (เพิ่ม 2026-09-12) คือการแก้บั๊กที่ Toy ถามมาตรงๆ ว่า
+"ทำไมบางภาพโมเดลตีความแปลก เขามองไม่เห็นทั้งภาพหรือ"
+
+เปิดภาพตัวอย่างสองใบดูแล้ว **คำตอบคือมันเห็นทั้งภาพ และนั่นแหละคือปัญหา**
+
+`iplus_sample1.jpg` ไม่ใช่เฟรมกล้อง มันคือ **ภาพถ่ายหน้าจอ dashboard ของทีมเขา**
+ในพิกเซลมีครบ: แถบข้อความบนสุด "เข้า 11 ออก 5 อยู่ในตึก 6" · ปุ่ม play กลางจอ ·
+กรอบเหลืองพร้อมป้าย ID:011/021/022 วาดทับ · และ **รูปหน้าคนสองใบแปะมุมขวา
+ซึ่งคือคนสองคนเดิมในเฟรมนั้นเอง** โมเดลอ่านทั้งหมดเป็นเนื้อหาของภาพ
+มันกำลังบรรยายรูปของจอมอนิเตอร์ ไม่ใช่บรรยายฉากที่กล้องเห็น
+
+`iplus_sample2.jpg` เป็นเฟรมจริง แต่มีกรอบ เขียว/แดง/น้ำเงิน ฝังอยู่ในพิกเซล
+prompt เดิมไม่เคยบอกว่ากรอบพวกนั้นคืออะไร โมเดลจึงอ่านว่า "นี่คือรายชื่อคนในภาพ"
+แล้วตอบ 3 คน ทั้งที่มี รปภ.ชุดเขียวคำว่า SECURITY ยืนอยู่หลังประตู คนชุดชมพู
+และคนเดินนอกอาคารอีกหลายคน **ไม่ใช่โมเดลมองไม่เห็น แต่เราสั่งมันผิด**
+
+ทางแก้ระยะยาวคือขอเฟรมดิบจากทีมคุณสุชาติ · ทางแก้ที่นี่คือบอกให้มันรู้จัก overlay
 """
 from __future__ import annotations
 
-from .prompt_p1 import ALLOWED
+from .prompt_p1 import allowed_block, system_block
 
-PROMPT_VERSION = "f1"
+PROMPT_VERSION = "f2"
+"""f1 -> f2 (2026-09-12) · เพิ่ม uniform, emotion, group, กฎเรื่อง overlay ที่ฝังมาในภาพ
+
+⚠️ **เปลี่ยน prompt แล้วจำนวนคนที่เจอขยับได้** วัดมาแล้ว 2026-09-11: แค่เพิ่มคำถาม
+เรื่องทิศ คนใน iplus_sample1 ขยับจาก 2 เป็น 3 · รอบนี้แตะกฎเรื่อง "ใครนับเป็นคน"
+ตรงๆ ยิ่งต้องยิงภาพชุดเดิมซ้ำก่อนเชื่อเลขใดๆ ห้ามสรุปจากภาพใบเดียว
+"""
 
 SYSTEM = """You describe every person visible in one CCTV still from a building entrance
 in Thailand. Nobody has been detected for you beforehand: you find the people yourself.
 
-For each person report which way they are facing, apparent gender, an age band, and
-their appearance in detail (face, skin tone, hair, height, build, clothing and its
-colours, footwear, what they carry), plus where they are in the frame.
+For each person report which way they are facing, apparent gender, an age band, their
+facial expression, whether they are in a uniform, who they appear to be with, their
+appearance in detail (face, skin tone, hair, height, build, clothing and its colours,
+footwear, what they carry), and where they are in the frame.
 
 How to be useful here:
+- This still may be a screenshot of a monitoring dashboard rather than a clean camera
+  frame. Coloured rectangles, ID labels, timestamps, counters, arrows, zone outlines, a
+  play button and small face thumbnails along one edge are all drawn on top of the
+  picture by another system. They are annotations, not content. Describe the scene
+  underneath them. A face thumbnail at the edge is somebody already in the frame shown a
+  second time, not an extra person. A drawn rectangle marks somebody that other system
+  happened to be tracking: it is not a promise that those are the only people here, so
+  look at everyone in the picture, boxed or not. Never copy a number off a counter into
+  your answer.
 - List a person once. A reflection in glass or a mirror is not a second person, and
   neither is someone already listed seen through a doorway.
 - Include people in the background only while you can still say something real about
-  them. A dark smudge at the far end of a lobby is not worth a row.
+  them. A dark smudge at the far end of a lobby is not worth a row. Somebody standing
+  outside the glass doors is still a person in this frame: list them, and say so in
+  `where`.
 - The camera looks at people as they come in. Someone facing you is coming in ("in").
   Someone whose back you see is going out ("out"). Someone side-on, or too obscured to
   tell, is "unknown", and that is a real answer: guessing here corrupts a head count.
@@ -47,11 +83,42 @@ How to be useful here:
   wrong person, which is worse than an empty field.
 - Do not let one person's clothing leak onto the next. Look at each person again before
   you describe them.
-- Judge height only against other people or doorways in the frame. Never estimate
+- Judge height against the other people and the doorways in this frame. Never estimate
   centimetres. Give an age band, never a single age.
+- A uniform is workwear that marks a role: a security or police shirt, scrubs, a cleaning
+  or maintenance overall, a delivery rider's jacket, a hotel or shop uniform, a school
+  uniform, a matching corporate shirt with a company logo. A plain suit worn to the
+  office is not a uniform: that is "none". If you cannot tell, "unknown". Copy any
+  wording actually printed on the uniform into `uniform.text` exactly as it reads, and
+  leave it "" when there is none. Do not translate it and do not invent it.
+- `group` says who arrived together. Give everyone a group id. People walking abreast at
+  the same pace, talking, or clearly waiting for each other share one id. Someone on
+  their own gets an id nobody else shares. Two strangers who happen to pass at the same
+  moment are not a group: being near each other is not enough. When you genuinely cannot
+  tell, give that person their own id rather than inventing company for them.
+- Report the facial expression you can actually see, as `emotion`. Choose the label from
+  what the face is doing, not from the mood of the scene:
+    happy    a smile, the corners of the mouth raised
+    sad      mouth corners down, inner brows raised
+    angry    brows drawn together and down, face tense
+    fear     eyes wide open, brows raised and pulled together
+    surprise eyes wide, mouth open, brows raised in an arch
+    disgust  nose wrinkled, upper lip raised
+    neutral  no expression standing out
+  `valence` puts that on a 1 to 5 scale: 1 is clearly unhappy, angry or upset, 3 is the
+  ordinary neutral face most people wear walking through a door, 5 is a broad smile or
+  laughter. Most people in a lobby are a 3, and answering 3 all day is correct if that is
+  what you see.
+  If you cannot see the face, because they are turned away, masked, too far or in shadow,
+  the label is "unknown" and the valence is 0. That is different from neutral: neutral
+  means you looked at a face and it was calm. Never soften a face you cannot see into a 3.
+  A resting face is not an angry face: do not read mild displeasure into a tired
+  commuter, and keep the confidence low whenever the face is small or blurred. fear and
+  disgust are rare at a building entrance: pick either one only on the features above,
+  never because someone merely looks unfriendly.
 - skin_tone is the skin tone visible in this image under this lighting. It is a
-  descriptive attribute like shirt colour. Do not infer nationality, ethnicity, religion
-  or occupation, and do not try to identify or name anyone.
+  descriptive attribute like shirt colour. Do not infer ethnicity, religion or
+  occupation, and do not try to identify or name anyone.
 - Confidence from 0 to 1, honestly. Someone sharp and close deserves 0.9. Someone small
   and half hidden deserves 0.3.
 
@@ -67,8 +134,10 @@ List people nearest the camera first, at most {cap}. Reply with exactly this sha
  "ref":"P1",
  "direction":"in","direction_confidence":0.9,
  "where":"centre foreground, walking towards the camera, in front of the other two",
+ "group":"G1",
  "gender":"female","gender_confidence":0.9,
- "age_range":"40-49","age_range_confidence":0.6,
+ "age_range":"40-49","age_range_confidence":0.6,{nat_shape}
+ "emotion":{{"label":"happy","valence":4,"confidence":0.5}},
  "appearance":{{
    "skin_tone":"medium","build":"average","height":"average",
    "hair_length":"short","hair_color":"black",
@@ -78,6 +147,7 @@ List people nearest the camera first, at most {cap}. Reply with exactly this sha
    "outer":{{"type":"none","color":"unknown","secondary_color":"unknown","pattern":"unknown"}},
    "bottom":{{"type":"trousers","color":"black","secondary_color":"unknown","pattern":"plain"}},
    "footwear":{{"type":"leather_shoes","color":"white","secondary_color":"unknown","pattern":"plain"}},
+   "uniform":{{"kind":"none","color":"unknown","id_badge":"no","text":""}},
    "carrying":["phone"],
    "distinctive":"รองเท้าหนังสีขาว"}},
  "appearance_confidence":0.7,
@@ -86,6 +156,11 @@ List people nearest the camera first, at most {cap}. Reply with exactly this sha
 
 `ref` numbers the people in this frame only: P1, P2, P3. It means nothing outside this
 answer, so do not try to recognise anyone or reuse a number from another frame.
+
+`group` is a second label on the same footing: G1, G2, G3, again meaningful only inside
+this answer. Everyone gets one. Two people who came in together carry the same `group`.
+Do not count the group members yourself and do not describe the group in words: just
+label them, the same label twice is what says they are together.
 
 `where` must let a person looking at the same picture point at the right one: position in
 the frame, what they are doing, and how they sit relative to the others. Do not give
@@ -100,6 +175,10 @@ failure, and it is the right one for an empty lobby.
 dark, too far, mostly out of frame. Leave it "" when nothing is wrong. Short."""
 
 
-def build(w: int, h: int, camera_id: str = "unknown", cap: int = 12):
-    return SYSTEM, USER_TEMPLATE.format(w=w, h=h, cam=camera_id, cap=cap,
-                                        allowed=ALLOWED)
+def build(w: int, h: int, camera_id: str = "unknown", cap: int = 12,
+          nationality: bool = False):
+    from .prompt_p1 import NATIONALITY_SHAPE
+    return (system_block(SYSTEM, nationality),
+            USER_TEMPLATE.format(w=w, h=h, cam=camera_id, cap=cap,
+                                 allowed=allowed_block(nationality),
+                                 nat_shape=NATIONALITY_SHAPE if nationality else ""))

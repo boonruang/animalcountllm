@@ -76,36 +76,57 @@ def check_no_secrets() -> None:
 
 
 def check_version_bumped() -> None:
-    """APP_VERSION ต้องขยับเมื่อโค้ดใน app/ เปลี่ยน
+    """เลขเวอร์ชันต้องขยับเมื่อโค้ดของงานนั้นเปลี่ยน
 
     ไม่มีตัวนี้ = ไม่มีทางรู้ว่า DO รันคอมมิตไหนอยู่ ซึ่งเสียเวลาไปแล้วสามรอบ
+
+    🔴 ตรวจสองงานแยกกัน เพราะ **ปลายทางคนละทีม** งานช้างมี APP_VERSION
+    งานคนมี PEOPLE_VERSION · ของเดิมเห็นแค่ `app/` แปลว่าแก้ `people/` ทั้งก้อน
+    แล้วลืมขยับเลข ด่านนี้ก็ไม่ร้อง ซึ่งเป็นรูเดียวกับที่ check_tests เพิ่งโดน:
+    ด่านที่รู้จัก repo แค่บางส่วน จะล้าสมัยวันที่ repo โตขึ้น
     """
     changed = run("diff", "--name-only", "origin/main..dev").splitlines()
-    if not any(f.startswith("app/") for f in changed):
-        return
-    cur = run("show", "HEAD:app/main.py")
-    try:
-        old = run("show", "origin/main:app/main.py", check=False)
-    except SystemExit:
-        return
+    for prefix, path, const in (("app/", "app/main.py", "APP_VERSION"),
+                                ("people/", "people/main.py", "PEOPLE_VERSION")):
+        if not any(f.startswith(prefix) for f in changed):
+            continue
+        cur = run("show", f"HEAD:{path}", check=False)
+        old = run("show", f"origin/main:{path}", check=False)
+        pattern = const + r'\s*=\s*"([^"]+)"'
 
-    def ver(text: str) -> str:
-        m = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', text)
-        return m.group(1) if m else ""
+        def ver(text: str) -> str:
+            m = re.search(pattern, text)
+            return m.group(1) if m else ""
 
-    if old and ver(cur) and ver(cur) == ver(old):
-        fail(f"โค้ดใน app/ เปลี่ยนแต่ APP_VERSION ยังเป็น {ver(cur)} "
-             f"· ขยับก่อน ไม่งั้นดูไม่ออกว่า deploy ทันหรือยัง")
-    ok(f"APP_VERSION = {ver(cur)}")
+        if old and ver(cur) and ver(cur) == ver(old):
+            fail(f"โค้ดใน {prefix} เปลี่ยนแต่ {const} ยังเป็น {ver(cur)} "
+                 f"· ขยับก่อน ไม่งั้นดูไม่ออกว่า deploy ทันหรือยัง")
+        if ver(cur):
+            ok(f"{const} = {ver(cur)}")
 
 
 def check_tests() -> None:
-    for t in ("tests/test_cv.py", "tests/test_filters.py"):
-        r = subprocess.run([sys.executable, t], capture_output=True, text=True,
-                           env={"PYTHONUTF8": "1", **__import__("os").environ})
-        if r.returncode:
-            fail(f"{t} ไม่ผ่าน:\n{r.stdout[-800:]}")
-        ok(f"{t} ผ่าน")
+    """รันทั้งโฟลเดอร์ `tests` ไม่ใช่ไล่จากรายชื่อไฟล์
+
+    🔴 ของเดิมไล่จากรายชื่อ `test_cv.py` กับ `test_filters.py` ซึ่งเป็นสองไฟล์
+    ที่มีอยู่ ณ วันที่เขียน ship.py · เทสต์ฝั่งคนอีก 70 กว่าข้อ ด่านนี้ไม่เคยเห็นเลย
+    **และ commit ที่มีเทสต์ตกขึ้น main ไปแล้วจริงๆ โดยไม่มีใครร้อง** (2026-09-11)
+
+    ที่เจ็บกว่านั้น: commit `8c937e5` เขียนในข้อความว่าแก้เรื่องนี้แล้ว
+    **แต่ไฟล์นี้ไม่ได้อยู่ใน commit นั้น** แก้ในข้อความ ไม่ได้แก้ในไฟล์ เลยกลายเป็น
+    ด่านที่ทั้ง CLAUDE.md ทั้ง vault และทั้ง commit message บอกว่าปิดรูแล้ว
+    ทั้งที่รูยังเปิดอยู่ · เจอ 2026-09-12 ตอนจะ deploy เพราะอ่านโค้ดก่อนใช้
+    **เอกสารที่บอกว่าแก้แล้ว ไม่ใช่หลักฐานว่าแก้แล้ว**
+
+    **ด่านที่ตรวจจากรายชื่อไฟล์ จะล้าสมัยเงียบๆ เสมอ** ชี้ที่โฟลเดอร์แทน
+    """
+    r = subprocess.run([sys.executable, "-m", "pytest", "tests", "-q"],
+                       capture_output=True, text=True,
+                       env={"PYTHONUTF8": "1", **__import__("os").environ})
+    if r.returncode:
+        fail(f"pytest tests ไม่ผ่าน:\n{r.stdout[-2000:]}")
+    lines = [l for l in r.stdout.strip().splitlines() if l.strip()]
+    ok(f"pytest tests: {lines[-1] if lines else 'ผ่าน'}")
 
 
 def check_branches() -> tuple[str, str]:

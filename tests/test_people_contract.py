@@ -31,19 +31,41 @@ TOP = {"request_id", "ref", "camera_id", "received_at",
        "status", "reason", "persons", "summary", "model", "timing_ms"}
 PERSON = {"id", "status", "where", "direction", "direction_confidence",
           "gender", "gender_confidence", "age_range",
-          "age_range_confidence", "appearance", "appearance_confidence",
+          "age_range_confidence", "age_group", "nationality",
+          "nationality_confidence", "group", "emotion",
+          "appearance", "appearance_confidence",
           "description", "overall_confidence", "reason", "image", "model",
           "timing_ms"}
 APPEARANCE = {"skin_tone", "build", "height", "hair_length", "hair_color",
               "glasses", "face_mask", "facial_hair", "headwear", "top",
-              "top_sleeve", "outer", "bottom", "footwear", "carrying", "distinctive"}
+              "top_sleeve", "outer", "bottom", "footwear", "carrying", "uniform",
+              "distinctive"}
 GARMENT = {"type", "color", "secondary_color", "pattern"}
+UNIFORM = {"kind", "color", "id_badge", "text"}
+GROUP = {"ref", "size", "type"}
+EMOTION = {"label", "valence", "confidence"}
 MODEL = {"provider", "name", "prompt_version", "finish_reason", "completion_tokens"}
 TIMING = {"decode", "vlm", "vlm_sum", "total"}
+# 🔴 ยอดรวมของ Demographic Analytics · Toy สั่ง 2026-09-12
+# ทุกชุดต้องมี unknown และต้องบวกได้ครบจำนวนคน ดู main._demographic_counts
+DEMOGRAPHIC = {"age_child", "age_teen", "age_adult", "age_senior", "age_unknown",
+               "gender_male", "gender_female", "gender_unknown",
+               "in_uniform", "uniform_unknown",
+               "group_alone", "group_pair", "group_3_plus", "group_unknown",
+               "groups_found",
+               "emotion_positive", "emotion_neutral", "emotion_negative",
+               "emotion_unknown"}
 SUMMARY = {"objects_in", "ok", "degraded", "error",
-           "direction_in", "direction_out", "direction_unknown"}
+           "direction_in", "direction_out", "direction_unknown"} | DEMOGRAPHIC
 
 client = TestClient(pm.app)
+
+# 🔴 ค่าใน response เป็น **ภาษาไทย** ตั้งแต่ 2026-09-12 (คีย์ยังเป็นอังกฤษ)
+# เทสต์อ้าง `people.th.FIELD` ไม่ใช่พิมพ์คำไทยไว้เอง · พิมพ์เองเมื่อไหร่
+# ก็จะได้ตารางแปลชุดที่สามที่ต้องคอยไล่แก้ตาม ซึ่งคือของที่เพิ่งถอดออกจากหน้าเว็บไป
+from people.th import FIELD as TH  # noqa: E402
+
+UNKNOWN = TH["direction"]["unknown"]
 
 
 def _png(w: int = 120, h: int = 260, color=(90, 90, 110)) -> str:
@@ -83,6 +105,9 @@ def test_รูปของ_response_ตรงกับที่ออกแบ�
     assert set(p["appearance"]) == APPEARANCE
     for part in ("top", "outer", "bottom", "footwear"):
         assert set(p["appearance"][part]) == GARMENT
+    assert set(p["appearance"]["uniform"]) == UNIFORM
+    assert set(p["group"]) == GROUP
+    assert set(p["emotion"]) == EMOTION
     assert set(p["image"]) == {"w", "h", "source", "bbox_used"}
 
 
@@ -106,7 +131,7 @@ def test_direction_มีค่าเสมอและยอดรวมต้�
     s = d["summary"]
     assert s["direction_in"] + s["direction_out"] + s["direction_unknown"] == 2
     for p in d["persons"]:
-        assert p["direction"] in {"in", "out", "unknown"}
+        assert p["direction"] in set(TH["direction"].values())
 
 
 def test_ชนิดของค่าถูกต้อง():
@@ -142,8 +167,12 @@ def test_llm_ล่ม_ก็ยังตอบเต็มรูป_ไม่�
     assert p["status"] == "degraded"
     assert d["status"] == "degraded"
     assert set(p) == PERSON
-    assert p["gender"] == "unknown"
+    assert p["gender"] == TH["gender"]["unknown"]
+    # age_range เป็นตัวเลข (`20-29`) ไม่ได้แปล · `unknown` ของมันจึงยังเป็นคำอังกฤษ
+    # 🔴 ตั้งใจ ไม่ใช่ตกหล่น · ฟิลด์ที่ค่าเป็นช่วงตัวเลข แปลแล้วไม่ได้อะไรขึ้นมา
+    # แต่เสียความสามารถในการ sort/compare ของปลายทางไป
     assert p["age_range"] == "unknown"
+    assert p["age_group"] == TH["age_group"]["unknown"]
     assert p["reason"], "degraded ต้องบอกเหตุผล ไม่ใช่เงียบ"
 
 
@@ -422,3 +451,80 @@ def test_ส่ง_ref_ซ้ำ_ได้หลายผล_และบอก�
         client.post("/v1/frames", json={"camera_id": "c", "image_base64": _png(),
                                         "note": ref})
     assert client.get(f"/v1/persons/by-ref/{ref}").json()["matches"] == 2
+
+
+# --------------------------------------------- Demographic Analytics 2026-09-12
+
+def test_ยอดรวม_demographic_ต้องบวกได้ครบจำนวนคนทุกชุด():
+    """🔴 กฎเดียวกับ direction · ปลายทางเอาไปทำกราฟแล้วยอดต้องตรงเสมอ
+
+    ยอดที่ขาดไปเงียบๆ ทำให้เขาไล่หาคนที่หายไป โดยที่ไม่มีใครหายไปจริง
+    เทสต์นี้เดินผ่านเส้นที่โมเดลล่มทั้งหมด ซึ่งคือเคสที่ยอดต้องยังครบอยู่ดี
+    """
+    n = 3
+    d = _post([{"id": f"p{i}", "image_base64": _png()} for i in range(n)])
+    s = d["summary"]
+    assert s["age_child"] + s["age_teen"] + s["age_adult"] + s["age_senior"] \
+        + s["age_unknown"] == n
+    assert s["gender_male"] + s["gender_female"] + s["gender_unknown"] == n
+    assert s["group_alone"] + s["group_pair"] + s["group_3_plus"] \
+        + s["group_unknown"] == n
+    assert s["emotion_positive"] + s["emotion_neutral"] + s["emotion_negative"] \
+        + s["emotion_unknown"] == n
+    assert s["in_uniform"] <= n and s["uniform_unknown"] <= n
+
+
+def test_ยอดรวม_demographic_ของเส้น_frames_ต้องเท่ากับ_people_found():
+    d = client.post("/v1/frames", json={"camera_id": "cam-1",
+                                        "image_base64": _png(400, 300)}).json()
+    s = d["summary"]
+    found = s["people_found"]
+    assert s["age_child"] + s["age_teen"] + s["age_adult"] + s["age_senior"] \
+        + s["age_unknown"] == found
+    assert s["emotion_positive"] + s["emotion_neutral"] + s["emotion_negative"] \
+        + s["emotion_unknown"] == found
+    assert s["groups_found"] <= found
+
+
+def test_group_ของเส้น_persons_เป็น_unknown_เสมอ_ซึ่งถูกแล้ว():
+    """เส้นนี้ยิงโมเดลทีละคนจาก crop ของคนนั้น ไม่มีใครเห็นภาพรวม
+
+    🔴 ตอบ alone ที่นี่คือการโกหกว่า "คนนี้มาคนเดียว" ทั้งที่เราแค่ไม่ได้ดู
+    ดู schemas.GroupType
+    """
+    d = _post([{"id": "a", "image_base64": _png()}])
+    g = d["persons"][0]["group"]
+    assert g == {"ref": "", "size": 0, "type": UNKNOWN}
+    assert d["summary"]["group_unknown"] == 1
+    assert d["summary"]["groups_found"] == 0
+
+
+def test_อารมณ์เป็นสเกล_1_ถึง_5_และ_0_คือไม่รู้():
+    """1 = bad, 5 = very happy (Toy เคาะ 2026-09-12) · 0 = มองไม่เห็นหน้า"""
+    d = _post([{"id": "a", "image_base64": _png()}])
+    e = d["persons"][0]["emotion"]
+    assert set(e) == EMOTION
+    assert isinstance(e["valence"], int) and 0 <= e["valence"] <= 5
+    # โมเดลต่อไม่ติดในเทสต์ = ไม่เคยดูหน้าใคร = ต้องเป็น 0 ไม่ใช่ 3
+    assert e["valence"] == 0 and e["label"] == TH["emotion.label"]["unknown"]
+
+
+def test_สัญชาติปิดอยู่โดยค่าเริ่มต้น_และ_healthz_บอกตรงๆ_ว่าปิด():
+    """🔴 คีย์ยังอยู่เสมอ รูป response ไม่เปลี่ยนตามค่า env (กฎเดียวกับ model)
+
+    แต่ต่างจาก model ตรงที่ **ต้องบอกปลายทางว่าปิดอยู่** ไม่งั้นเขาจะนั่งไล่หาว่า
+    ทำไมฟิลด์นี้ไม่เคยมีค่า แล้วโทษโมเดลทั้งที่เราปิดไว้เอง
+    """
+    d = _post([{"id": "a", "image_base64": _png()}])
+    p = d["persons"][0]
+    assert p["nationality"] == UNKNOWN and p["nationality_confidence"] == 0.0
+    h = client.get("/healthz").json()
+    assert h["nationality_enabled"] is False
+    assert "1=bad" in h["emotion_scale"] and "5=very happy" in h["emotion_scale"]
+
+
+def test_uniform_อยู่ใน_appearance_และมีค่าเริ่มต้นเป็น_unknown():
+    d = _post([{"id": "a", "image_base64": _png()}])
+    u = d["persons"][0]["appearance"]["uniform"]
+    assert u == {"kind": UNKNOWN, "color": UNKNOWN,
+                 "id_badge": TH["uniform.id_badge"]["unknown"], "text": ""}

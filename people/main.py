@@ -43,17 +43,20 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .llm import prompt_f1, prompt_p1
-from .llm.client import PersonLLM, normalize, people_of
+from .llm.client import (ALLOW_NATIONALITY, PersonLLM, apply_groups, normalize,
+                         people_of)
 from .schemas import (ImageInfo, ModelInfo, ObjectIn, PeopleFrameIn, PersonOut,
                       PersonTruthIn, PersonsIn, PersonsOut)
 from .store import PersonStore
+from .th import thai
 
 # 🔴 เลขนี้ต้องขยับทุกครั้งที่ **พฤติกรรมของ endpoint ฝั่งคน** เปลี่ยน
 # แยกจาก APP_VERSION ของฝั่งช้างโดยตั้งใจ สองงานนี้จะ deploy ไปด้วยกันก็จริง
 # แต่ปลายทางคนละทีม ต้องตอบได้ว่า "ของที่คุณเรียกอยู่เวอร์ชันอะไร" แยกกัน
-PEOPLE_VERSION = "0.5.0"
-BUILD_NOTES = ("person attributes (gender, age band, appearance) via VLM"
-               " · /v1/persons prompt p1 · /v1/frames prompt f1")
+PEOPLE_VERSION = "0.6.0"
+BUILD_NOTES = ("person attributes (gender, age band+group, emotion 1-5, uniform,"
+               " group size, appearance) via VLM"
+               " · /v1/persons prompt p2 · /v1/frames prompt f2")
 
 app = FastAPI(title="smart-people-counting", version=PEOPLE_VERSION)
 
@@ -196,6 +199,55 @@ def _direction_counts(persons: List[PersonOut]) -> dict:
             "direction_unknown": sum(1 for p in persons if p.direction == "unknown")}
 
 
+def _demographic_counts(persons: List[PersonOut]) -> dict:
+    """ยอดรวมของ Demographic Analytics · Toy สั่ง 2026-09-12
+
+    🔴 กฎเดียวกับ direction ทุกประการ: **ทุกชุดต้องมี unknown และต้องบวกได้ครบ**
+    age_child + teen + adult + senior + unknown = จำนวนคน
+    group_alone + pair + group_3_plus + unknown = จำนวนคน
+    ปลายทางเอาไปทำกราฟแล้วยอดต้องตรงกับ people_found เสมอ ไม่งั้นเขาจะไล่หา
+    คนที่หายไปโดยที่ไม่มีใครหายไปจริง · **ตัวเลขที่ไม่ครบแต่ดูครบ แย่กว่าตัวเลข
+    ที่บอกว่าตัวเองไม่ครบ**
+
+    `in_uniform` ไม่ใช่ชุดที่บวกครบ มันคือตัวนับตัวเดียว จึงมี `uniform_unknown`
+    คู่มาด้วย ไม่งั้น "ไม่ได้ใส่" กับ "ดูไม่ออก" จะรวมกันอยู่ในเลขที่หายไป
+
+    ⚠️ ยอด group ของเส้น `/v1/persons` จะเป็น group_unknown ทั้งหมดเสมอ
+    นั่นถูกแล้ว ไม่ใช่บั๊ก · ดู schemas.GroupType
+    """
+    n_uniform = sum(1 for p in persons
+                    if p.appearance.uniform.kind not in {"none", "unknown"})
+    return {
+        "age_child": sum(1 for p in persons if p.age_group == "child"),
+        "age_teen": sum(1 for p in persons if p.age_group == "teen"),
+        "age_adult": sum(1 for p in persons if p.age_group == "adult"),
+        "age_senior": sum(1 for p in persons if p.age_group == "senior"),
+        "age_unknown": sum(1 for p in persons if p.age_group == "unknown"),
+        "gender_male": sum(1 for p in persons if p.gender == "male"),
+        "gender_female": sum(1 for p in persons if p.gender == "female"),
+        "gender_unknown": sum(1 for p in persons if p.gender == "unknown"),
+        "in_uniform": n_uniform,
+        "uniform_unknown": sum(1 for p in persons
+                               if p.appearance.uniform.kind == "unknown"),
+        "group_alone": sum(1 for p in persons if p.group.type == "alone"),
+        "group_pair": sum(1 for p in persons if p.group.type == "pair"),
+        "group_3_plus": sum(1 for p in persons if p.group.type == "group_3_plus"),
+        "group_unknown": sum(1 for p in persons if p.group.type == "unknown"),
+        # จำนวน "กลุ่ม" ไม่ใช่จำนวนคน · ล็อบบี้ที่มี 6 คนอาจเป็น 2 กลุ่มก็ได้
+        "groups_found": len({p.group.ref for p in persons if p.group.ref}),
+        # อารมณ์ · สเกล 1-5 (1 = bad, 5 = very happy) ยุบเป็นสามถัง + ไม่รู้
+        # 🔴 **ไม่มีค่าเฉลี่ยในนี้โดยตั้งใจ** summary เป็น Dict[str, int] และ
+        # ค่าเฉลี่ยที่รวมคนที่ valence=0 เข้าไปด้วย จะดิ่งลงตามจำนวนคนที่มองไม่เห็นหน้า
+        # ซึ่งอ่านเหมือน "ลูกค้าอารมณ์แย่ลง" ทั้งที่แปลว่า "กล้องเห็นหน้าน้อยลง"
+        # ใครอยากได้ค่าเฉลี่ย ให้คิดจาก persons[] เฉพาะคนที่ valence > 0
+        "emotion_positive": sum(1 for p in persons if p.emotion.valence >= 4),
+        "emotion_neutral": sum(1 for p in persons if p.emotion.valence == 3),
+        "emotion_negative": sum(1 for p in persons
+                                if 1 <= p.emotion.valence <= 2),
+        "emotion_unknown": sum(1 for p in persons if p.emotion.valence == 0),
+    }
+
+
 def _auth(key: Optional[str]) -> None:
     if API_KEY and key != API_KEY:
         raise HTTPException(status_code=401, detail="bad or missing X-API-Key")
@@ -288,6 +340,20 @@ def _model_info(res=None) -> Optional[ModelInfo]:
         completion_tokens=getattr(res, "completion_tokens", None))
 
 
+def _out(payload: PersonsOut) -> JSONResponse:
+    """ตอบออกไปเป็นไทย · **คีย์อังกฤษ ค่าไทย** (Toy สั่ง 2026-09-12)
+
+    🔴 แปลตรงนี้ที่เดียว หลัง `PersonsOut` ประกอบเสร็จ และ **หลังเขียนลงฐานแล้ว**
+    ของที่ลงฐานยังเป็นอังกฤษชุดค่าปิดเหมือนเดิมทุกตัว ดูเหตุผลยาวใน `people/th.py`
+
+    คืน `JSONResponse` ไม่ใช่ `PersonsOut` เพราะค่าไทยไม่ผ่าน `Literal` ใน schema
+    ซึ่งถูกต้องแล้ว: schema คือความจริงฝั่งใน ไม่ใช่รูปของสายที่ส่งออก
+    `response_model` เลยถูกถอดออกจาก decorator ของสองเส้นนี้ ไม่งั้น FastAPI
+    จะ validate ซ้ำแล้วตก 500 ทั้งที่คำตอบถูกต้องทุกช่อง
+    """
+    return JSONResponse(thai(jsonable_encoder(payload)))
+
+
 # ---------------------------------------------------------------- endpoints
 @app.get("/healthz")
 def healthz():
@@ -301,6 +367,12 @@ def healthz():
             "model": llm.model if EXPOSE_MODEL else None,
             "prompt_version": prompt_p1.PROMPT_VERSION if EXPOSE_MODEL else None,
             "frame_prompt_version": prompt_f1.PROMPT_VERSION if EXPOSE_MODEL else None,
+            # 🔴 สองตัวนี้ **ไม่ใช่ข้อมูลโมเดล** เลยไม่ถูกซ่อนตาม EXPOSE_MODEL
+            # มันบอกว่าคำตอบที่ปลายทางได้รับ "แปลว่าอะไร" ซึ่งเขาต้องรู้เสมอ
+            # nationality ปิดอยู่ = ทุกคนได้ unknown ถ้าเขาไม่รู้ เขาจะนั่งไล่หาว่า
+            # ทำไมฟิลด์นี้ไม่เคยมีค่า แล้วโทษโมเดลทั้งที่เราปิดไว้เอง
+            "nationality_enabled": ALLOW_NATIONALITY,
+            "emotion_scale": "1-5 (1=bad, 5=very happy), 0=unknown",
             "max_objects": 16, "workers": WORKERS,
             "frame_max_people": FRAME_MAX_PEOPLE,
             "bbox_margin": BBOX_MARGIN, "min_crop_px": MIN_CROP_PX,
@@ -309,7 +381,7 @@ def healthz():
             "auth_required": bool(API_KEY), "tracing": llm.tracing}
 
 
-@app.post("/v1/persons", response_model=PersonsOut)
+@app.post("/v1/persons")
 def post_persons(body: PersonsIn, x_api_key: Optional[str] = Header(default=None)):
     _auth(x_api_key)
     t_start = time.perf_counter()
@@ -430,6 +502,15 @@ def post_persons(body: PersonsIn, x_api_key: Optional[str] = Header(default=None
             "direction": p.direction, "direction_confidence": p.direction_confidence,
             "gender": p.gender, "gender_confidence": p.gender_confidence,
             "age_range": p.age_range, "age_range_confidence": p.age_range_confidence,
+            "age_group": p.age_group,
+            "nationality": p.nationality,
+            "nationality_confidence": p.nationality_confidence,
+            "emotion_label": p.emotion.label, "emotion_valence": p.emotion.valence,
+            "emotion_confidence": p.emotion.confidence,
+            "group_ref": p.group.ref, "group_size": p.group.size,
+            "group_type": p.group.type,
+            "uniform_kind": p.appearance.uniform.kind,
+            "uniform_text": p.appearance.uniform.text,
             "appearance": p.appearance.model_dump_json(),
             "appearance_confidence": p.appearance_confidence,
             "description": p.description, "overall_confidence": p.overall_confidence,
@@ -453,7 +534,7 @@ def post_persons(body: PersonsIn, x_api_key: Optional[str] = Header(default=None
     store.insert_persons(rows)
     store.finish_request(request_id, status, total_ms)
 
-    return PersonsOut(
+    return _out(PersonsOut(
         request_id=request_id, ref=_ref_of(body), camera_id=body.camera_id,
         received_at=_iso(now), status=status, persons=persons,
         summary={"objects_in": len(body.objects), "ok": ok_n,
@@ -461,14 +542,15 @@ def post_persons(body: PersonsIn, x_api_key: Optional[str] = Header(default=None
                  "error": sum(1 for p in persons if p.status == "error"),
                  # นับเฉพาะคนที่ตอบได้ · direction ของคน degraded เป็น unknown อยู่แล้ว
                  # และมันควรถูกนับเป็น "ไม่รู้" ไม่ใช่หายไปจากยอดรวมเฉยๆ
-                 **_direction_counts(persons)},
+                 **_direction_counts(persons),
+                 **_demographic_counts(persons)},
         model=_model_info(),
         timing_ms={"decode": decode_ms, "vlm": vlm_wall_ms,
                    "vlm_sum": round(vlm_sum, 1), "total": total_ms},
-    )
+    ))
 
 
-@app.post("/v1/frames", response_model=PersonsOut)
+@app.post("/v1/frames")
 def post_frame(body: PeopleFrameIn, x_api_key: Optional[str] = Header(default=None)):
     """เฟรมเดียว ไม่มีใครถูกชี้ · โมเดลหาคนเอง ตอบทุกคนในครั้งเดียว
 
@@ -527,8 +609,16 @@ def post_frame(body: PeopleFrameIn, x_api_key: Optional[str] = Header(default=No
             status, why = "degraded", err
         else:
             status, why = "ok", ""
-            for ref, where, item in found:
-                n = normalize(item)
+            # 🔴 สองรอบ ไม่ใช่รอบเดียว · ขนาดกลุ่มรู้ได้ก็ต่อเมื่อเห็นครบทุกคนแล้ว
+            # คนที่ 1 จะรู้ว่าตัวเองอยู่กลุ่ม 3 คน ก็ต่อเมื่ออ่านถึงคนที่ 3
+            # นี่คือเหตุผลที่ `group` มีเฉพาะเส้นนี้ เส้น persons ยิงทีละคนแยกกัน
+            # จึงไม่มีรอบที่สองให้ทำ ดู schemas.GroupType
+            normalized = [normalize(item, with_group=True) for _, _, item in found]
+            apply_groups(normalized)
+            for (ref, where, _), n in zip(found, normalized):
+                # overall ยังเป็นค่าเฉลี่ยของสามตัวเดิม (เพศ/อายุ/รูปพรรณ) เท่านั้น
+                # ไม่รวมอารมณ์ เพราะคนที่หันหลัง อารมณ์ = 0 แต่เสื้อผ้ายังอ่านได้ครบ
+                # เอา 0 ไปถ่วงจะได้ "คำตอบนี้เชื่อไม่ได้" ทั้งที่ส่วนที่ใช้ตามตัวยังดีอยู่
                 conf = round((n["gender_confidence"] + n["age_range_confidence"]
                               + n["appearance_confidence"]) / 3, 3)
                 persons.append(PersonOut(id=ref, status="ok", where=where,
@@ -554,6 +644,15 @@ def post_frame(body: PeopleFrameIn, x_api_key: Optional[str] = Header(default=No
                 "direction": p.direction, "direction_confidence": p.direction_confidence,
                 "gender": p.gender, "gender_confidence": p.gender_confidence,
                 "age_range": p.age_range, "age_range_confidence": p.age_range_confidence,
+                "age_group": p.age_group,
+                "nationality": p.nationality,
+                "nationality_confidence": p.nationality_confidence,
+                "emotion_label": p.emotion.label, "emotion_valence": p.emotion.valence,
+                "emotion_confidence": p.emotion.confidence,
+                "group_ref": p.group.ref, "group_size": p.group.size,
+                "group_type": p.group.type,
+                "uniform_kind": p.appearance.uniform.kind,
+                "uniform_text": p.appearance.uniform.text,
                 "appearance": p.appearance.model_dump_json(),
                 "appearance_confidence": p.appearance_confidence,
                 "description": p.description, "overall_confidence": p.overall_confidence,
@@ -573,16 +672,17 @@ def post_frame(body: PeopleFrameIn, x_api_key: Optional[str] = Header(default=No
     store.insert_persons(rows)
     store.finish_request(request_id, status, total_ms)
 
-    return PersonsOut(
+    return _out(PersonsOut(
         request_id=request_id, ref=_ref_of(body), camera_id=body.camera_id,
         received_at=_iso(now), status=status, persons=persons, reason=why,
         # objects_in = 0 เพราะเส้นนี้ไม่มีใครถูกส่งมาให้ตรวจ · people_found คือของจริง
         summary={"objects_in": 0, "ok": len(persons), "degraded": 0, "error": 0,
-                 "people_found": len(persons), **_direction_counts(persons)},
+                 "people_found": len(persons), **_direction_counts(persons),
+                 **_demographic_counts(persons)},
         model=model_info,
         timing_ms={"decode": decode_ms, "vlm": vlm_ms, "vlm_sum": res.latency_ms,
                    "total": total_ms},
-    )
+    ))
 
 
 @app.get("/v1/persons/by-ref/{client_request_id}")
@@ -602,8 +702,8 @@ def get_by_client_ref(client_request_id: str,
         raise HTTPException(status_code=404,
                             detail="ไม่เคยเห็น client_request_id นี้")
     latest = store.get_request(rows[0]["request_id"])
-    return JSONResponse({"ref": client_request_id, "matches": len(rows),
-                         "latest": latest})
+    return JSONResponse(thai({"ref": client_request_id, "matches": len(rows),
+                              "latest": latest}))
 
 
 @app.get("/v1/persons/{request_id}")
@@ -612,7 +712,7 @@ def get_persons(request_id: str, x_api_key: Optional[str] = Header(default=None)
     row = store.get_request(request_id)
     if not row:
         raise HTTPException(status_code=404, detail="unknown request_id")
-    return JSONResponse(row)
+    return JSONResponse(thai(row))
 
 
 @app.post("/v1/persons/{request_id}/{object_id}/truth")

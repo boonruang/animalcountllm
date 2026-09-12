@@ -44,6 +44,15 @@ CREATE TABLE IF NOT EXISTS persons (
   direction         TEXT, direction_confidence REAL,
   gender            TEXT, gender_confidence REAL,
   age_range         TEXT, age_range_confidence REAL,
+  age_group         TEXT,          -- คำนวณจาก age_range ไม่ได้ถามโมเดล
+  nationality       TEXT, nationality_confidence REAL,
+  emotion_label     TEXT, emotion_valence INTEGER, emotion_confidence REAL,
+  group_ref         TEXT, group_size INTEGER, group_type TEXT,
+  -- uniform_kind / uniform_text ซ้ำกับที่อยู่ใน appearance JSON โดยตั้งใจ
+  -- สองช่องนี้คือของที่ปลายทางจะ GROUP BY จริง ("เดือนนี้ รปภ. เข้ากี่คน")
+  -- ขุดออกจาก JSON ทุกครั้งที่ query = ช้าและเขียน SQL ยาก
+  -- ที่เหลือของ appearance ไม่มีใครถาม เลยไม่แตกทั้งก้อน
+  uniform_kind      TEXT, uniform_text TEXT,
   appearance        TEXT,          -- JSON ทั้งก้อน
   appearance_confidence REAL,
   description       TEXT,
@@ -97,7 +106,17 @@ class PersonStore:
         เลยเติมให้เองตรงนี้ ไม่ต้องรอให้ใครไปลบไฟล์ทิ้ง
         """
         for table, cols in (
-            ("persons", (("direction", "TEXT"), ("direction_confidence", "REAL"))),
+            ("persons", (("direction", "TEXT"), ("direction_confidence", "REAL"),
+                         # 2026-09-12 · demographic + uniform + emotion
+                         ("age_group", "TEXT"),
+                         ("nationality", "TEXT"),
+                         ("nationality_confidence", "REAL"),
+                         ("emotion_label", "TEXT"),
+                         ("emotion_valence", "INTEGER"),
+                         ("emotion_confidence", "REAL"),
+                         ("group_ref", "TEXT"), ("group_size", "INTEGER"),
+                         ("group_type", "TEXT"),
+                         ("uniform_kind", "TEXT"), ("uniform_text", "TEXT"))),
             ("person_requests", (("client_request_id", "TEXT"),)),
         ):
             have = {r["name"] for r in
@@ -139,6 +158,10 @@ class PersonStore:
         cols = ("request_id", "object_id", "camera_id", "ts", "status",
                 "direction", "direction_confidence",
                 "gender", "gender_confidence", "age_range", "age_range_confidence",
+                "age_group", "nationality", "nationality_confidence",
+                "emotion_label", "emotion_valence", "emotion_confidence",
+                "group_ref", "group_size", "group_type",
+                "uniform_kind", "uniform_text",
                 "appearance", "appearance_confidence", "description",
                 "overall_confidence", "reason", "image_w", "image_h", "image_source",
                 "image_path", "llm_raw_response", "prompt_version", "model_name",

@@ -281,6 +281,19 @@ def _pick(value: Any, allowed: set, default: str = "unknown") -> str:
         return "yes"
     if v in {"false", "none", "no_"} and "no" in allowed:
         return "no"
+    # 🔴 "dark_green" -> "green" · วัดจริงบน prod 2026-09-12
+    #
+    # ยิงกรอบ รปภ. ชุดเขียวเข้มเข้าไป ได้ `uniform.color: unknown` กลับมา
+    # ทั้งที่ช่องบรรยายเขียนว่า "เสื้อสีเขียวเข้ม" ชัดเจน · โมเดลอ่านถูก
+    # เราทิ้งเอง เพราะ `dark_green` ไม่อยู่ในชุด **นี่คือบั๊ก `laptop` รอบที่สอง
+    # ต่างแค่ฟิลด์** ชุดค่าปิดที่แคบเกินจริง = ทิ้งของดีเงียบๆ ไม่มี error ให้เห็น
+    #
+    # ทางแก้คือปอกคำขยายทิ้ง **ไม่ใช่เพิ่ม dark_green ลงในชุด** เพราะชุดสีตั้งใจ
+    # ให้หยาบ ปลายทางต้องกรองได้ว่า "หาคนเสื้อเขียว" แล้วเจอทั้งเขียวเข้มเขียวอ่อน
+    # เพิ่มเฉดเมื่อไหร่ การกรองก็แตกเป็นเสี่ยงทันที
+    for prefix in ("dark_", "light_", "deep_", "bright_", "pale_", "very_"):
+        if v.startswith(prefix) and v[len(prefix):] in allowed:
+            return v[len(prefix):]
     return default
 
 

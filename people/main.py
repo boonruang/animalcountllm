@@ -53,10 +53,10 @@ from .th import thai
 # 🔴 เลขนี้ต้องขยับทุกครั้งที่ **พฤติกรรมของ endpoint ฝั่งคน** เปลี่ยน
 # แยกจาก APP_VERSION ของฝั่งช้างโดยตั้งใจ สองงานนี้จะ deploy ไปด้วยกันก็จริง
 # แต่ปลายทางคนละทีม ต้องตอบได้ว่า "ของที่คุณเรียกอยู่เวอร์ชันอะไร" แยกกัน
-PEOPLE_VERSION = "0.6.0"
+PEOPLE_VERSION = "0.6.1"
 BUILD_NOTES = ("person attributes (gender, age band+group, emotion 1-5, uniform,"
                " group size, appearance) via VLM"
-               " · /v1/persons prompt p2 · /v1/frames prompt f2")
+               " · /v1/persons prompt p2 · /v1/frames prompt f3")
 
 app = FastAPI(title="smart-people-counting", version=PEOPLE_VERSION)
 

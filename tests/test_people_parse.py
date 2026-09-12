@@ -455,3 +455,41 @@ def test_คำไทยในหน้า_verify_ต้องตรงกับ
     # เพศที่หน้าเว็บใช้นับยอดในกล่องสรุป ต้องเป็นคำเดียวกับที่ API ส่งมา
     assert f"p.gender === '{th.FIELD['gender']['male']}'" in html
     assert f"p.gender === '{th.FIELD['gender']['female']}'" in html
+
+
+def test_เฉดสีที่แคบเกินไปต้องไม่ถูกทิ้ง():
+    """🔴 วัดจริงบน prod 2026-09-12 · รปภ. ชุดเขียวเข้มได้ color unknown กลับมา
+
+    โมเดลอ่านถูก เขียนว่า "เสื้อสีเขียวเข้ม" ในช่องบรรยาย แต่ `dark_green`
+    ไม่อยู่ในชุดสี เราเลยทิ้งทิ้งไปเอง **บั๊ก `laptop` รอบที่สอง ต่างแค่ฟิลด์**
+
+    ปอกคำขยายทิ้ง ไม่ใช่เพิ่มเฉดลงในชุด · ชุดสีตั้งใจให้หยาบเพื่อให้กรองได้ว่า
+    "หาคนเสื้อเขียว" แล้วเจอทั้งเขียวเข้มเขียวอ่อน เพิ่มเฉดเมื่อไหร่การกรองก็แตก
+    """
+    for said, want in (("dark_green", "green"), ("light blue", "blue"),
+                       ("deep_navy", "navy"), ("bright_red", "red"),
+                       ("pale_pink", "pink")):
+        n = normalize({"appearance": {"top": {"color": said}}})
+        assert n["appearance"].top.color == want, f"{said} -> {n['appearance'].top.color}"
+    # คำขยายที่ปอกแล้วยังไม่อยู่ในชุด ต้องเป็น unknown เหมือนเดิม ไม่ใช่ปล่อยผ่าน
+    assert normalize({"appearance": {"top": {"color": "dark_teal"}}}
+                     )["appearance"].top.color == "unknown"
+    # และใช้กับ uniform.color ด้วย ซึ่งคือช่องที่เจอปัญหาจริง
+    assert normalize({"appearance": {"uniform": {"color": "dark_green"}}}
+                     )["appearance"].uniform.color == "green"
+
+
+def test_prompt_บอกว่าบัตรแขวนคอไม่ใช่เครื่องแบบ():
+    """🔴 วัดจริงบน prod 2026-09-12 · คู่ที่ใส่เชิ้ตขาว+สูทดำ+บัตรแขวนคอ
+    ถูกตอบว่า `corporate` ทั้งที่ prompt เขียนไว้แล้วว่าสูทไปทำงานคือ `none`
+
+    บัตรแขวนคอมีช่องของตัวเองอยู่แล้ว (`id_badge`) มันไม่ควรมีสิทธิ์ตัดสินช่องนี้
+    เทสต์นี้ล็อกถ้อยคำไว้ ไม่ใช่ล็อกพฤติกรรมของโมเดล (ซึ่งล็อกไม่ได้)
+    ใครถอดกฎนี้ออกจะได้เห็นว่ามันเคยมีเหตุผล
+    """
+    from people.llm import prompt_f1, prompt_p1
+    for mod in (prompt_p1, prompt_f1):
+        sysmsg = mod.SYSTEM
+        assert "lanyard" in sysmsg and "id_badge" in sysmsg
+        assert "office clothes are ordinary clothes" in sysmsg
+        assert 'Pick "corporate" only on real evidence' in sysmsg

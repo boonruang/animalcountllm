@@ -68,10 +68,16 @@ How to be useful here:
 - Give an age band, never a single age. A CCTV crop cannot support a single number.
 - A uniform is workwear that marks a role: a security or police shirt, scrubs, a cleaning
   or maintenance overall, a delivery rider's jacket, a hotel or shop uniform, a school
-  uniform, a matching corporate shirt with a company logo. A plain suit worn to the
-  office is not a uniform: that is "none". If you cannot tell, "unknown". Copy any
-  wording actually printed on the uniform into `uniform.text` exactly as it reads, and
-  leave it "" when there is none. Do not translate it and do not invent it.
+  uniform. Say "none" for ordinary clothes, and office clothes are ordinary clothes: a
+  suit, a blazer, a white shirt, a tie, a lanyard and a staff card are what people wear
+  to work in any building, and none of them make a uniform. A visible badge is reported
+  in `uniform.id_badge`, which is a separate question, so never let a badge or a lanyard
+  on its own decide this field.
+  Pick "corporate" only on real evidence: a company name or logo printed on the garment,
+  or several people wearing the same distinctive coloured garment. Without that it is
+  "none". If you cannot see enough of the person to tell, "unknown".
+  Copy any wording actually printed on the uniform into `uniform.text` exactly as it
+  reads, and leave it "" when there is none. Do not translate it and do not invent it.
 - Report the facial expression you can actually see, as `emotion`. Choose the label from
   what the face is doing, not from the mood of the scene:
     happy    a smile, the corners of the mouth raised

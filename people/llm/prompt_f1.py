@@ -42,8 +42,16 @@ from __future__ import annotations
 
 from .prompt_p1 import allowed_block, system_block
 
-PROMPT_VERSION = "f2"
-"""f1 -> f2 (2026-09-12) · เพิ่ม uniform, emotion, group, กฎเรื่อง overlay ที่ฝังมาในภาพ
+PROMPT_VERSION = "f3"
+"""f1 -> f2 -> f3 (2026-09-12) · uniform, emotion, group, กฎเรื่อง overlay ที่ฝังมาในภาพ
+
+🔴 f2 -> f3 · **วัดจริงบน prod แล้ว f2 ไม่ได้แก้ปัญหา**
+f2 เขียนกฎ overlay ไว้เป็นข้อควรระวังข้อหนึ่งในรายการ แล้วยิง iplus_sample2 บน prod
+ได้ 3 คนเท่าเดิมเป๊ะ คือสามคนที่มีกรอบวาดทับ · รปภ.ชุดเขียวหลังประตูยังหายไปเหมือนเดิม
+**และพิสูจน์แล้วว่าไม่ใช่เรื่องความละเอียด** ชี้ bbox ของ รปภ. เข้า /v1/persons ตรงๆ
+โมเดลอ่านออกครบ ตอบ uniform.kind=security และลอกคำว่า "SECURITY" จากหลังเสื้อมาได้
+f3 เลยเปลี่ยนจาก "ข้อควรระวังข้อหนึ่ง" เป็น **ขั้นตอนที่หนึ่งที่ต้องทำก่อนบรรยายใคร**
+บทเรียน: กฎที่สำคัญที่สุดของ prompt ต้องเป็นลำดับขั้นตอน ไม่ใช่ bullet ปนกับข้ออื่น
 
 ⚠️ **เปลี่ยน prompt แล้วจำนวนคนที่เจอขยับได้** วัดมาแล้ว 2026-09-11: แค่เพิ่มคำถาม
 เรื่องทิศ คนใน iplus_sample1 ขยับจาก 2 เป็น 3 · รอบนี้แตะกฎเรื่อง "ใครนับเป็นคน"
@@ -58,16 +66,29 @@ facial expression, whether they are in a uniform, who they appear to be with, th
 appearance in detail (face, skin tone, hair, height, build, clothing and its colours,
 footwear, what they carry), and where they are in the frame.
 
+Work in this order.
+
+Step one, before anything else: find every person in the picture.
+
+This still is often a screenshot of a monitoring dashboard, not a clean camera frame.
+Coloured rectangles, ID labels, timestamps, counters, arrows, zone outlines, a play
+button and small face thumbnails along one edge are drawn on top of the picture by
+another system. They are annotations, not content.
+
+So sweep the whole image yourself and count the people you can see: near the camera, at
+the back, through a doorway, outside the glass, at the edges of the frame. Do that
+sweep first, and do it as if no rectangle had been drawn at all. Those rectangles mark
+whoever that other system happened to be tracking at that moment. They are not the list
+of people present, and a person standing outside a drawn rectangle is exactly as real as
+one inside it. If your final answer lists only the people who happen to sit inside drawn
+rectangles, you have described the annotations instead of the scene: go back and look
+again. Never copy a number off a counter into your answer.
+
+Step two: describe each person you found.
+
 How to be useful here:
-- This still may be a screenshot of a monitoring dashboard rather than a clean camera
-  frame. Coloured rectangles, ID labels, timestamps, counters, arrows, zone outlines, a
-  play button and small face thumbnails along one edge are all drawn on top of the
-  picture by another system. They are annotations, not content. Describe the scene
-  underneath them. A face thumbnail at the edge is somebody already in the frame shown a
-  second time, not an extra person. A drawn rectangle marks somebody that other system
-  happened to be tracking: it is not a promise that those are the only people here, so
-  look at everyone in the picture, boxed or not. Never copy a number off a counter into
-  your answer.
+- A face thumbnail along an edge is somebody already in the frame shown a second time,
+  not an extra person.
 - List a person once. A reflection in glass or a mirror is not a second person, and
   neither is someone already listed seen through a doorway.
 - Include people in the background only while you can still say something real about
@@ -87,10 +108,16 @@ How to be useful here:
   centimetres. Give an age band, never a single age.
 - A uniform is workwear that marks a role: a security or police shirt, scrubs, a cleaning
   or maintenance overall, a delivery rider's jacket, a hotel or shop uniform, a school
-  uniform, a matching corporate shirt with a company logo. A plain suit worn to the
-  office is not a uniform: that is "none". If you cannot tell, "unknown". Copy any
-  wording actually printed on the uniform into `uniform.text` exactly as it reads, and
-  leave it "" when there is none. Do not translate it and do not invent it.
+  uniform. Say "none" for ordinary clothes, and office clothes are ordinary clothes: a
+  suit, a blazer, a white shirt, a tie, a lanyard and a staff card are what people wear
+  to work in any building, and none of them make a uniform. A visible badge is reported
+  in `uniform.id_badge`, which is a separate question, so never let a badge or a lanyard
+  on its own decide this field.
+  Pick "corporate" only on real evidence: a company name or logo printed on the garment,
+  or several people wearing the same distinctive coloured garment. Without that it is
+  "none". If you cannot see enough of the person to tell, "unknown".
+  Copy any wording actually printed on the uniform into `uniform.text` exactly as it
+  reads, and leave it "" when there is none. Do not translate it and do not invent it.
 - `group` says who arrived together. Give everyone a group id. People walking abreast at
   the same pace, talking, or clearly waiting for each other share one id. Someone on
   their own gets an id nobody else shares. Two strangers who happen to pass at the same

@@ -42,8 +42,12 @@ from __future__ import annotations
 
 from .prompt_p1 import allowed_block, system_block
 
-PROMPT_VERSION = "f3"
+PROMPT_VERSION = "f4"
 """f1 -> f2 -> f3 (2026-09-12) · uniform, emotion, group, กฎเรื่อง overlay ที่ฝังมาในภาพ
+f3 -> f4 (2026-09-14) · `mobility` เดินเอง/รถเข็นเด็ก/วีลแชร์/ถูกอุ้ม **และ**
+เติมเด็กในรถเข็นกับเด็กที่ถูกอุ้มเข้าไปในรายการ "ใครนับเป็นคน" ของขั้นตอนที่หนึ่ง
+เส้นนี้เป็นเส้นเดียวที่โมเดลเป็นคนตัดสินว่ามีกี่คน เด็กในรถเข็นที่ไม่ถูกนับ
+จึงหายทั้งแถว ไม่ใช่แค่ช่องเดียวที่ว่าง (เส้น persons ปลายทางชี้มาเองอยู่แล้ว)
 
 🔴 f2 -> f3 · **วัดจริงบน prod แล้ว f2 ไม่ได้แก้ปัญหา**
 f2 เขียนกฎ overlay ไว้เป็นข้อควรระวังข้อหนึ่งในรายการ แล้วยิง iplus_sample2 บน prod
@@ -62,7 +66,8 @@ SYSTEM = """You describe every person visible in one CCTV still from a building 
 in Thailand. Nobody has been detected for you beforehand: you find the people yourself.
 
 For each person report which way they are facing, apparent gender, an age band, their
-facial expression, whether they are in a uniform, who they appear to be with, their
+facial expression, whether they are in a uniform, whether they are walking or being
+pushed in a pram or a wheelchair, who they appear to be with, their
 appearance in detail (face, skin tone, hair, height, build, clothing and its colours,
 footwear, what they carry), and where they are in the frame.
 
@@ -76,8 +81,11 @@ button and small face thumbnails along one edge are drawn on top of the picture 
 another system. They are annotations, not content.
 
 So sweep the whole image yourself and count the people you can see: near the camera, at
-the back, through a doorway, outside the glass, at the edges of the frame. Do that
-sweep first, and do it as if no rectangle had been drawn at all. Those rectangles mark
+the back, through a doorway, outside the glass, at the edges of the frame. A small child
+sitting in a pram and a baby carried in someone's arms are people in this frame too, and
+they are the two the eye skips most often: each of them gets a row of their own, separate
+from the adult pushing or holding them. Do that sweep first, and do it as if no rectangle
+had been drawn at all. Those rectangles mark
 whoever that other system happened to be tracking at that moment. They are not the list
 of people present, and a person standing outside a drawn rectangle is exactly as real as
 one inside it. If your final answer lists only the people who happen to sit inside drawn
@@ -143,6 +151,18 @@ How to be useful here:
   commuter, and keep the confidence low whenever the face is small or blurred. fear and
   disgust are rare at a building entrance: pick either one only on the features above,
   never because someone merely looks unfriendly.
+- `mobility` is whether a person is moving on their own legs or is being carried along
+  by something. walking: on their own feet, standing counts, and a cane, a crutch or a
+  walking frame still counts as walking. stroller: a small child sitting in a pushchair
+  or pram. wheelchair: sitting in a wheelchair, at any age. carried: a baby or small
+  child held in someone's arms, in a sling or in a baby carrier. other: on a bicycle, a
+  scooter or anything else with wheels under them.
+  The person pushing is walking and the person being pushed is a separate row: a woman
+  pushing a pram with a baby in it is two people, one walking and one stroller, never
+  one row for the pair. They usually share the same `group`.
+  When someone's lower body is hidden behind a counter, a desk or another person,
+  answer unknown. Do not answer walking just because you cannot see anything underneath
+  them: that is the one wrong answer that looks right.
 - skin_tone is the skin tone visible in this image under this lighting. It is a
   descriptive attribute like shirt colour. Do not infer ethnicity, religion or
   occupation, and do not try to identify or name anyone.
@@ -164,6 +184,7 @@ List people nearest the camera first, at most {cap}. Reply with exactly this sha
  "group":"G1",
  "gender":"female","gender_confidence":0.9,
  "age_range":"40-49","age_range_confidence":0.6,{nat_shape}
+ "mobility":"walking","mobility_confidence":0.8,
  "emotion":{{"label":"happy","valence":4,"confidence":0.5}},
  "appearance":{{
    "skin_tone":"medium","build":"average","height":"average",

@@ -230,6 +230,31 @@ def test_สัญชาติปิดอยู่_ตอบมาก็ทิ�
     assert n["nationality"] == "unknown" and n["nationality_confidence"] == 0.0
 
 
+def test_mobility_นอกชุดเป็น_unknown_ไม่ใช่เดาว่าเดิน():
+    """🔴 "ไม่เห็นว่ามีล้อ" กับ "เห็นว่าไม่มีล้อ" คนละเรื่อง
+
+    ถ้าเราแปลงค่าที่อ่านไม่ออกให้เป็น walking ยอด "เด็กในรถเข็น" จะต่ำกว่าจริง
+    ตลอดไป โดยที่ไม่มีใครเห็นว่ามันต่ำ · เรื่องเดียวกับ emotion ที่มองไม่เห็นหน้า
+    ห้ามกลายเป็น neutral
+    """
+    for said in ("pram", "baby stroller", "sitting", "", None, 5):
+        assert normalize({"mobility": said})["mobility"] == "unknown"
+    for said in ("walking", "stroller", "wheelchair", "carried", "other"):
+        assert normalize({"mobility": said})["mobility"] == said
+
+
+def test_mobility_ไม่ผูกกับ_age_group():
+    """เด็กไม่ได้อยู่ในรถเข็นทุกคน และคนในรถเข็นไม่ได้เป็นเด็กทุกคน
+
+    ผู้สูงอายุนั่งวีลแชร์เข้าอาคารทุกวัน · ถ้าเขียนโค้ดให้ช่องนี้มีค่าเฉพาะตอน
+    age_group = child ผู้สูงอายุกลุ่มนั้นจะหายไปเงียบๆ ทั้งกลุ่ม
+    """
+    n = normalize({"age_range": "60+", "mobility": "wheelchair"})
+    assert n["age_group"] == "senior" and n["mobility"] == "wheelchair"
+    n = normalize({"age_range": "0-12", "mobility": "walking"})
+    assert n["age_group"] == "child" and n["mobility"] == "walking"
+
+
 def test_ชุดค่าในโค้ดกับใน_prompt_ต้องตรงกันทุกตัว():
     """🔴 บทเรียน `laptop` 2026-09-11 · ชุดค่าที่ต้องตรงกันแต่แก้คนละที่ จะไม่ตรงกัน
 
@@ -270,6 +295,15 @@ def test_ชุดค่าในโค้ดกับใน_prompt_ต้อง
         line = [l for l in ALLOWED.splitlines() if l.startswith(name + ":")][0]
         got = {v.strip() for v in line.split(":", 1)[1].split(",")}
         assert want == got, f"{name} ไม่ตรงกัน: {want ^ got}"
+
+    # mobility อยู่ระดับบน (PersonOut) ไม่ได้อยู่ใน Appearance
+    from people.llm.client import _MOBILITY
+    from people.schemas import PersonOut
+    want = set(typing.get_args(PersonOut.model_fields["mobility"].annotation))
+    line = [l for l in ALLOWED.splitlines() if l.startswith("mobility:")][0]
+    got = {v.strip() for v in line.split(":", 1)[1].split(",")}
+    assert want == got, f"mobility ไม่ตรงกัน: {want ^ got}"
+    assert want == _MOBILITY, f"normalize ไม่ตรงกับ schema: {want ^ _MOBILITY}"
 
     # carrying เป็น List[Literal] ซ้อนอีกชั้น และใน prompt ไม่มี unknown โดยตั้งใจ
     want = set(typing.get_args(typing.get_args(
@@ -327,6 +361,7 @@ def test_ทุกค่าใน_schema_ต้องมีคำแปลไท
         ("direction", vals(PersonOut, "direction")),
         ("gender", vals(PersonOut, "gender")),
         ("age_group", vals(PersonOut, "age_group")),
+        ("mobility", vals(PersonOut, "mobility")),
         ("nationality", vals(PersonOut, "nationality")),
         ("group.type", vals(GroupInfo, "type")),
         ("emotion.label", vals(Emotion, "label")),
@@ -439,6 +474,7 @@ def test_คำไทยในหน้า_verify_ต้องตรงกับ
     assert keys_of("DIRC") == set(th.FIELD["direction"].values())
     assert keys_of("DIRI") == set(th.FIELD["direction"].values())
     assert keys_of("EMOI") == set(th.FIELD["emotion.label"].values())
+    assert keys_of("MOBI") == set(th.FIELD["mobility"].values())
     assert keys_of("HEX") == set(th.FIELD["color"].values())
 
     # ค่าคงที่ที่หน้าเว็บใช้เทียบตรงๆ (T.unknown, T.noUniform, ...)
@@ -451,6 +487,7 @@ def test_คำไทยในหน้า_verify_ต้องตรงกับ
     assert t["noOuter"] == th.FIELD["outer.type"]["none"]
     assert t["plain"] == th.FIELD["pattern"]["plain"]
     assert t["has"] == th.FIELD["uniform.id_badge"]["yes"]
+    assert t["walking"] == th.FIELD["mobility"]["walking"]
 
     # เพศที่หน้าเว็บใช้นับยอดในกล่องสรุป ต้องเป็นคำเดียวกับที่ API ส่งมา
     assert f"p.gender === '{th.FIELD['gender']['male']}'" in html

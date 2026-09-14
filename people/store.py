@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS persons (
   gender            TEXT, gender_confidence REAL,
   age_range         TEXT, age_range_confidence REAL,
   age_group         TEXT,          -- คำนวณจาก age_range ไม่ได้ถามโมเดล
+  mobility          TEXT, mobility_confidence REAL,   -- รถเข็นเด็ก/วีลแชร์/ถูกอุ้ม
   nationality       TEXT, nationality_confidence REAL,
   emotion_label     TEXT, emotion_valence INTEGER, emotion_confidence REAL,
   group_ref         TEXT, group_size INTEGER, group_type TEXT,
@@ -109,6 +110,9 @@ class PersonStore:
             ("persons", (("direction", "TEXT"), ("direction_confidence", "REAL"),
                          # 2026-09-12 · demographic + uniform + emotion
                          ("age_group", "TEXT"),
+                         # 2026-09-14 · เดินเอง/รถเข็นเด็ก/วีลแชร์/ถูกอุ้ม
+                         ("mobility", "TEXT"),
+                         ("mobility_confidence", "REAL"),
                          ("nationality", "TEXT"),
                          ("nationality_confidence", "REAL"),
                          ("emotion_label", "TEXT"),
@@ -158,7 +162,8 @@ class PersonStore:
         cols = ("request_id", "object_id", "camera_id", "ts", "status",
                 "direction", "direction_confidence",
                 "gender", "gender_confidence", "age_range", "age_range_confidence",
-                "age_group", "nationality", "nationality_confidence",
+                "age_group", "mobility", "mobility_confidence",
+                "nationality", "nationality_confidence",
                 "emotion_label", "emotion_valence", "emotion_confidence",
                 "group_ref", "group_size", "group_type",
                 "uniform_kind", "uniform_text",

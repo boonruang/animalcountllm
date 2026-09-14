@@ -32,7 +32,8 @@ TOP = {"request_id", "ref", "camera_id", "received_at",
 PERSON = {"id", "status", "where", "direction", "direction_confidence",
           "gender", "gender_confidence", "age_range",
           "age_range_confidence", "age_group", "nationality",
-          "nationality_confidence", "group", "emotion",
+          "nationality_confidence", "mobility", "mobility_confidence",
+          "group", "emotion",
           "appearance", "appearance_confidence",
           "description", "overall_confidence", "reason", "image", "model",
           "timing_ms"}
@@ -54,7 +55,12 @@ DEMOGRAPHIC = {"age_child", "age_teen", "age_adult", "age_senior", "age_unknown"
                "group_alone", "group_pair", "group_3_plus", "group_unknown",
                "groups_found",
                "emotion_positive", "emotion_neutral", "emotion_negative",
-               "emotion_unknown"}
+               "emotion_unknown",
+               # 2026-09-14 · เดินเอง/รถเข็นเด็ก/วีลแชร์/ถูกอุ้ม
+               "mobility_walking", "mobility_stroller", "mobility_wheelchair",
+               "mobility_carried", "mobility_other", "mobility_unknown",
+               # ไขว้สองช่อง ไม่ใช่สมาชิกของชุดไหน ห้ามเอาไปบวกรวม
+               "child_in_stroller"}
 SUMMARY = {"objects_in", "ok", "degraded", "error",
            "direction_in", "direction_out", "direction_unknown"} | DEMOGRAPHIC
 
@@ -484,6 +490,62 @@ def test_ยอดรวม_demographic_ของเส้น_frames_ต้อ�
     assert s["emotion_positive"] + s["emotion_neutral"] + s["emotion_negative"] \
         + s["emotion_unknown"] == found
     assert s["groups_found"] <= found
+
+
+def test_ยอดรวม_mobility_ต้องบวกได้ครบจำนวนคนทั้งสองเส้น():
+    """🔴 กฎเดียวกับทุกชุด · มี unknown เสมอ และบวกได้ครบ
+
+    ชุดนี้ต่างจากชุดอื่นตรงที่ **ถังที่ใหญ่ที่สุดที่หน้าประตูจริงคือ unknown**
+    เพราะช่วงล่างของตัวคนถูกเคาน์เตอร์กับคนข้างหน้าบังบ่อยที่สุดในภาพ
+    ถ้าวันไหน unknown เป็นศูนย์ทั้งวัน แปลว่าโมเดลเดาแทนที่จะตอบว่าไม่เห็น
+    """
+    def only_mobility(s):
+        return (s["mobility_walking"] + s["mobility_stroller"]
+                + s["mobility_wheelchair"] + s["mobility_carried"]
+                + s["mobility_other"] + s["mobility_unknown"])
+
+    n = 3
+    d = _post([{"id": f"m{i}", "image_base64": _png()} for i in range(n)])
+    assert only_mobility(d["summary"]) == n
+
+    f = client.post("/v1/frames", json={"camera_id": "cam-1",
+                                        "image_base64": _png(400, 300)}).json()
+    assert only_mobility(f["summary"]) == f["summary"]["people_found"]
+
+
+def test_เด็กในรถเข็นเป็นตัวไขว้_ไม่ใช่สมาชิกของชุดไหน():
+    """Toy ถามตรงๆ ว่า "กรณีเป็นเด็ก แยกว่าอยู่ในรถเข็นไหม" (2026-09-14)
+
+    ตัวนี้นับซ้ำกับทั้ง age_child และ mobility_stroller โดยตั้งใจ
+    **ห้ามเอาไปบวกรวมกับชุดไหน** เทสต์นี้ยืนยันว่ามันไม่เกินสองตัวนั้น
+    ซึ่งเป็นสิ่งเดียวที่รับประกันได้โดยไม่ต้องมีโมเดลจริง
+    """
+    d = _post([{"id": "k", "image_base64": _png()}])
+    s = d["summary"]
+    assert s["child_in_stroller"] <= s["age_child"]
+    assert s["child_in_stroller"] <= s["mobility_stroller"]
+
+
+def test_mobility_มีจริงทั้งสองเส้น_ไม่ใช่เฉพาะ_persons():
+    """🔴 บทเรียน 2026-09-14 · Toy ทักเองว่า "ที่สั่งไปแก้เฉพาะ persons หรือเปล่า"
+
+    ของใหม่ทุกอย่างของงานนี้ต้องขึ้นทั้งสองเส้น เว้นแต่มีเหตุผลเขียนไว้ว่าทำไม
+    (`group` กับ `where` คือสองตัวที่มีเหตุผลนั้น ดู schemas.GroupType)
+    ด่านนี้จับกรณีที่แก้เส้นเดียวแล้วลืมอีกเส้น ซึ่งไม่มีอาการอะไรให้เห็นเลย
+    นอกจากช่องที่เป็น unknown ตลอดกาลในเส้นที่ลืม
+    """
+    d = _post([{"id": "a", "image_base64": _png()}])
+    assert "mobility" in d["persons"][0]
+    assert "mobility_confidence" in d["persons"][0]
+
+    from people.llm import prompt_f1, prompt_p1
+    for mod, args in ((prompt_p1, ("021", 224, 515, "cam-1")),
+                      (prompt_f1, (1916, 1080, "cam-1", 12))):
+        sys_txt, user_txt = mod.build(*args)
+        assert "`mobility`" in sys_txt, f"{mod.__name__} ไม่ได้ถามเรื่อง mobility"
+        assert '"mobility"' in user_txt, f"{mod.__name__} ไม่มี mobility ในรูปคำตอบ"
+        # คนเข็นไม่ใช่คนถูกเข็น · ถ้ากฎข้อนี้หาย ยอดเด็กในรถเข็นจะเบิ้ล
+        assert "pushing" in sys_txt
 
 
 def test_group_ของเส้น_persons_เป็น_unknown_เสมอ_ซึ่งถูกแล้ว():

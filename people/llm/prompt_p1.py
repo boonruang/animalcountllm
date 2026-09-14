@@ -29,9 +29,17 @@
 """
 from __future__ import annotations
 
-PROMPT_VERSION = "p2"
+PROMPT_VERSION = "p3"
 """p1 -> p2 (2026-09-12) · เพิ่ม uniform, emotion, กฎเรื่อง overlay ที่ฝังมาในภาพ
 (group ไม่มีในเส้นนี้ ดู schemas.GroupType)
+p2 -> p3 (2026-09-14) · เพิ่ม `mobility` เดินเอง/รถเข็นเด็ก/วีลแชร์/ถูกอุ้ม
+
+🔴 **หลุมที่เพิ่งถมวันนี้ · แถวในฐานที่เขียนว่า `p2` มีสองความหมาย**
+commit 2cf112f (2026-09-12 16:31) แก้ถ้อยคำเรื่องเครื่องแบบใน prompt นี้จริง
+(บัตรแขวนคอไม่ใช่เครื่องแบบ, corporate ต้องมีโลโก้) **แต่ไม่ได้ขยับเลขนี้**
+ฝั่ง f1 ขยับเป็น f3 ในคอมมิตเดียวกัน · แปลว่าแถวที่ป้ายว่า p2 ก่อนกับหลัง
+16:31 ของวันนั้น มาจาก prompt คนละตัว และแยกจากกันด้วยเวลาเท่านั้น
+ไล่ย้อนหลังเรื่อง uniform ในช่วงนั้นเมื่อไหร่ ให้ดู `ts` ประกอบเสมอ
 
 🔴 เลขนี้ถูกเก็บลง DB ทุกแถว · ขยับทุกครั้งที่ prompt เปลี่ยน ไม่งั้นเวลาไล่ย้อนหลัง
 ว่า "ทำไมผลเดือนที่แล้วกับเดือนนี้ไม่เหมือนกัน" จะแยกไม่ออกว่าเพราะ prompt หรือเพราะภาพ
@@ -43,8 +51,9 @@ The camera system has already detected and tracked this person. The image you ge
 that person. Your only job is to report what is visible about them.
 
 Report which way they are facing, apparent gender, an age band, their facial expression,
-whether they are in a uniform, and their appearance in detail (face, skin tone, hair,
-height, build, clothing and its colours, footwear, what they carry).
+whether they are in a uniform, whether they are walking or being pushed in a pram or a
+wheelchair, and their appearance in detail (face, skin tone, hair, height, build,
+clothing and its colours, footwear, what they carry).
 
 How to be useful here:
 - The camera looks at people as they come in. Someone facing you is coming in ("in").
@@ -98,6 +107,18 @@ How to be useful here:
   commuter, and keep the confidence low whenever the face is small or blurred. fear and
   disgust are rare at a building entrance: pick either one only on the features above,
   never because someone merely looks unfriendly.
+- `mobility` is whether this person is moving on their own legs or is being carried
+  along by something. walking: on their own feet, standing counts, and a cane, a
+  crutch or a walking frame still counts as walking. stroller: a small child sitting
+  in a pushchair or pram. wheelchair: sitting in a wheelchair, at any age. carried:
+  a baby or small child held in someone's arms, in a sling or in a baby carrier.
+  other: on a bicycle, a scooter or anything else with wheels under them.
+  Somebody pushing a pram or a wheelchair is walking. The person being pushed is a
+  different person and a different crop, not this one, so never answer stroller for
+  the adult holding the handle.
+  If this crop stops at the chest, or the lower body is behind a counter, a desk or
+  another person, answer unknown. Do not answer walking just because you cannot see
+  anything underneath them: that is the one wrong answer that looks right.
 - skin_tone is the skin tone visible in this image under this lighting. It is a
   descriptive attribute like shirt colour. Do not infer ethnicity, religion or
   occupation, and do not try to identify or name the person.
@@ -119,6 +140,7 @@ Reply with exactly this shape:
 {{"direction":"in","direction_confidence":0.9,
  "gender":"male","gender_confidence":0.8,
  "age_range":"30-39","age_range_confidence":0.5,{nat_shape}
+ "mobility":"walking","mobility_confidence":0.9,
  "emotion":{{"label":"neutral","valence":3,"confidence":0.6}},
  "appearance":{{
    "skin_tone":"medium","build":"average","height":"unknown",
@@ -151,6 +173,7 @@ ALLOWED = """Allowed values, use these exact strings and nothing else:
 direction: in, out, unknown
 gender: male, female, unknown
 age_range: 0-12, 13-19, 20-29, 30-39, 40-49, 50-59, 60+, unknown
+mobility: walking, stroller, wheelchair, carried, other, unknown
 skin_tone: light, medium, tan, dark, unknown
 build: slim, average, heavy, unknown
 height: short, average, tall, unknown

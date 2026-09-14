@@ -230,7 +230,7 @@ let objUrl = null, done = 0;
 const T = {
   unknown: 'ไม่ทราบ', noFace: 'มองไม่เห็นหน้า',
   noUniform: 'ไม่ได้ใส่เครื่องแบบ', noOuter: 'ไม่ได้ใส่ทับ',
-  plain: 'สีพื้น', has: 'มี',
+  plain: 'สีพื้น', has: 'มี', walking: 'เดินเอง',
 };
 const DIRC= { 'เข้า':'success', 'ออก':'danger', 'ไม่ทราบ':'secondary' };
 const DIRI= { 'เข้า':'box-arrow-in-right', 'ออก':'box-arrow-right',
@@ -238,6 +238,11 @@ const DIRI= { 'เข้า':'box-arrow-in-right', 'ออก':'box-arrow-right'
 // สเกล 1-5 · 1 = bad, 5 = very happy (Toy เคาะ 2026-09-12) · 0 = มองไม่เห็นหน้า
 const EMOC= { 0:'secondary', 1:'danger', 2:'warning', 3:'secondary', 4:'success',
               5:'success' };
+// 🔴 คีย์เป็นคำไทยที่ API ส่งมา (people/th.py) ไม่ใช่คำอังกฤษในฐาน
+// test_คำไทยในหน้า_verify_ต้องตรงกับ_people_th เฝ้าไม่ให้สองที่หลุดจากกัน
+const MOBI= { 'เดินเอง':'person-walking', 'อยู่ในรถเข็นเด็ก':'balloon',
+              'นั่งรถเข็นวีลแชร์':'person-wheelchair', 'ถูกอุ้ม':'person-arms-up',
+              'อื่นๆ':'three-dots', 'ไม่ทราบ':'question-lg' };
 const EMOI= { 'เป็นกลาง':'emoji-neutral', 'มีความสุข':'emoji-smile',
               'เศร้า':'emoji-frown', 'โกรธ':'emoji-angry',
               'ประหลาดใจ':'emoji-surprise', 'กลัว':'emoji-frown',
@@ -539,6 +544,9 @@ function person(p) {
         ${u.kind && u.kind !== T.unknown && u.kind !== T.noUniform
           ? `<span class="badge text-bg-dark"><i class="bi bi-person-badge me-1"></i>${esc(u.kind)}${
               u.text ? ` &ldquo;${esc(u.text)}&rdquo;` : ''}</span>` : ''}
+        ${p.mobility && p.mobility !== T.walking && p.mobility !== T.unknown
+          ? `<span class="badge text-bg-info text-dark"><i class="bi bi-${
+              MOBI[p.mobility] ?? 'question-lg'} me-1"></i>${esc(p.mobility)}</span>` : ''}
         ${p.group && p.group.type !== T.unknown
           ? `<span class="badge text-bg-light text-dark"><i class="bi bi-people me-1"></i>${esc(p.group.type)}</span>` : ''}
         ${p.nationality && p.nationality !== T.unknown
@@ -615,6 +623,13 @@ function demo(s) {
                          ['ไม่แน่ใจ', s.uniform_unknown]])}
     ${row('มาด้วยกัน', [['คนเดียว', s.group_alone], ['คู่', s.group_pair],
                         ['3 คนขึ้นไป', s.group_3_plus], ['ไม่ทราบ', s.group_unknown]])}
+    ${row('การเคลื่อนที่', [['เดินเอง', s.mobility_walking],
+                            ['รถเข็นเด็ก', s.mobility_stroller],
+                            ['วีลแชร์', s.mobility_wheelchair],
+                            ['ถูกอุ้ม', s.mobility_carried],
+                            ['อื่นๆ', s.mobility_other],
+                            ['ไม่แน่ใจ', s.mobility_unknown]])}
+    ${row('เด็กในรถเข็น', [['คน', s.child_in_stroller]])}
   </tbody></table>`;
 }
 

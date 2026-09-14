@@ -82,6 +82,12 @@ FIELD: Dict[str, Dict[str, str]] = {
     "gender": {"male": "ชาย", "female": "หญิง", "unknown": _UNKNOWN},
     "age_group": {"child": "เด็ก", "teen": "วัยรุ่น", "adult": "ผู้ใหญ่",
                   "senior": "ผู้สูงอายุ", "unknown": _UNKNOWN},
+    # 🔴 "รถเข็นเด็ก" กับ "รถเข็นวีลแชร์" ต้องเป็นคนละคำในภาษาไทย
+    # คำว่า "รถเข็น" เฉยๆ ใช้เรียกได้ทั้งสองอย่าง ซึ่งเป็นความกำกวมที่ปลายทาง
+    # แก้เองไม่ได้เลยเมื่อเห็นแต่ค่าในช่อง
+    "mobility": {"walking": "เดินเอง", "stroller": "อยู่ในรถเข็นเด็ก",
+                 "wheelchair": "นั่งรถเข็นวีลแชร์", "carried": "ถูกอุ้ม",
+                 "other": "อื่นๆ", "unknown": _UNKNOWN},
     "nationality": {"thai": "ไทย", "asian_other": "เอเชียอื่น",
                     "western": "ตะวันตก", "other": "อื่นๆ", "unknown": _UNKNOWN},
     "skin_tone": {"light": "ผิวขาว", "medium": "ผิวสองสี", "tan": "ผิวแทน",

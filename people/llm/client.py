@@ -27,6 +27,12 @@ _GENDER = {"male", "female", "unknown"}
 _DIRECTION = {"in", "out", "unknown"}
 _AGE = {"0-12", "13-19", "20-29", "30-39", "40-49", "50-59", "60+", "unknown"}
 _NATIONALITY = {"thai", "asian_other", "western", "other", "unknown"}
+_MOBILITY = {"walking", "stroller", "wheelchair", "carried", "other", "unknown"}
+"""เดินเอง / รถเข็นเด็ก / วีลแชร์ / ถูกอุ้ม · Toy สั่ง 2026-09-14
+
+ชุดนี้**ไม่ได้ดึงจาก schema ด้วย `_allowed`** เหมือน appearance เพราะมันอยู่ระดับบน
+ไม่ใช่ในก้อน Appearance · `test_ชุดค่าในโค้ดกับใน_prompt_ต้องตรงกันทุกตัว`
+เฝ้าให้ตรงกับ `PersonOut.mobility` และกับ prompt ทั้งสองเส้น"""
 
 # 🔴 สวิตช์เดียวของทั้งระบบสำหรับเรื่องสัญชาติ · ค่าเริ่มต้นคือปิด
 #
@@ -461,6 +467,11 @@ def normalize(data: Dict[str, Any], with_group: bool = False) -> Dict[str, Any]:
         # คำนวณจาก age_range ที่ลดทอนแล้ว ไม่ใช่จากที่โมเดลตอบดิบ
         # ("ประมาณ 35 ปี" -> age_range unknown -> age_group unknown ตามกันไป)
         "age_group": age_group_of(age_range),
+        # 🔴 อยู่ในรถเข็นไหม · ถามโมเดลตรงๆ เพราะมันคือ "เห็นล้ออยู่ใต้ตัวเขาไหม"
+        # ไม่ใช่ของที่คำนวณจากช่องอื่นได้ (ต่างจาก age_group ที่มาจาก age_range)
+        # ค่านอกชุดเป็น unknown เหมือนทุกช่อง ไม่เดาว่า "น่าจะเดิน"
+        "mobility": _pick(data.get("mobility"), _MOBILITY),
+        "mobility_confidence": _conf(data.get("mobility_confidence")),
         # 🔴 ชั้นที่สองของสวิตช์สัญชาติ · ปิดอยู่ = unknown เสมอ ไม่ว่าโมเดลตอบอะไรมา
         "nationality": (_pick(data.get("nationality"), _NATIONALITY)
                         if ALLOW_NATIONALITY else "unknown"),

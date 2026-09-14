@@ -53,10 +53,10 @@ from .th import thai
 # 🔴 เลขนี้ต้องขยับทุกครั้งที่ **พฤติกรรมของ endpoint ฝั่งคน** เปลี่ยน
 # แยกจาก APP_VERSION ของฝั่งช้างโดยตั้งใจ สองงานนี้จะ deploy ไปด้วยกันก็จริง
 # แต่ปลายทางคนละทีม ต้องตอบได้ว่า "ของที่คุณเรียกอยู่เวอร์ชันอะไร" แยกกัน
-PEOPLE_VERSION = "0.6.1"
+PEOPLE_VERSION = "0.7.0"
 BUILD_NOTES = ("person attributes (gender, age band+group, emotion 1-5, uniform,"
-               " group size, appearance) via VLM"
-               " · /v1/persons prompt p2 · /v1/frames prompt f3")
+               " group size, mobility, appearance) via VLM"
+               " · /v1/persons prompt p3 · /v1/frames prompt f4")
 
 app = FastAPI(title="smart-people-counting", version=PEOPLE_VERSION)
 
@@ -245,6 +245,25 @@ def _demographic_counts(persons: List[PersonOut]) -> dict:
         "emotion_negative": sum(1 for p in persons
                                 if 1 <= p.emotion.valence <= 2),
         "emotion_unknown": sum(1 for p in persons if p.emotion.valence == 0),
+        # 🔴 เดินเอง / รถเข็นเด็ก / วีลแชร์ / ถูกอุ้ม · Toy สั่ง 2026-09-14
+        # ชุดนี้บวกครบจำนวนคนเหมือนทุกชุด และ **มีถัง unknown เสมอ**
+        # ที่หน้าประตูจะมี unknown เยอะกว่าชุดอื่นเป็นปกติ เพราะช่วงล่างของตัวคน
+        # ถูกเคาน์เตอร์กับคนข้างหน้าบังบ่อยที่สุดในภาพ · นั่นคือคำตอบที่ถูก
+        # ไม่ใช่ค่าที่ต้องไปไล่ให้หมด
+        "mobility_walking": sum(1 for p in persons if p.mobility == "walking"),
+        "mobility_stroller": sum(1 for p in persons if p.mobility == "stroller"),
+        "mobility_wheelchair": sum(1 for p in persons
+                                   if p.mobility == "wheelchair"),
+        "mobility_carried": sum(1 for p in persons if p.mobility == "carried"),
+        "mobility_other": sum(1 for p in persons if p.mobility == "other"),
+        "mobility_unknown": sum(1 for p in persons if p.mobility == "unknown"),
+        # ⚠️ **ตัวนี้ไม่ใช่สมาชิกของชุดไหน มันคือการไขว้สองช่อง** (เด็ก x รถเข็น)
+        # ซึ่งเป็นคำถามที่ Toy ถามมาตรงๆ ("กรณีเป็นเด็ก แยกว่าอยู่ในรถเข็นไหม")
+        # อย่าเอาไปบวกรวมกับ mobility_* หรือ age_* มันนับซ้ำกับทั้งสองชุด
+        # เด็กที่ถูกอุ้มไม่รวมอยู่ในนี้ (คนละค่า) กรองเอาเองจาก persons[] ได้
+        "child_in_stroller": sum(1 for p in persons
+                                 if p.age_group == "child"
+                                 and p.mobility == "stroller"),
     }
 
 
@@ -503,6 +522,8 @@ def post_persons(body: PersonsIn, x_api_key: Optional[str] = Header(default=None
             "gender": p.gender, "gender_confidence": p.gender_confidence,
             "age_range": p.age_range, "age_range_confidence": p.age_range_confidence,
             "age_group": p.age_group,
+            "mobility": p.mobility,
+            "mobility_confidence": p.mobility_confidence,
             "nationality": p.nationality,
             "nationality_confidence": p.nationality_confidence,
             "emotion_label": p.emotion.label, "emotion_valence": p.emotion.valence,
@@ -645,6 +666,8 @@ def post_frame(body: PeopleFrameIn, x_api_key: Optional[str] = Header(default=No
                 "gender": p.gender, "gender_confidence": p.gender_confidence,
                 "age_range": p.age_range, "age_range_confidence": p.age_range_confidence,
                 "age_group": p.age_group,
+                "mobility": p.mobility,
+                "mobility_confidence": p.mobility_confidence,
                 "nationality": p.nationality,
                 "nationality_confidence": p.nationality_confidence,
                 "emotion_label": p.emotion.label, "emotion_valence": p.emotion.valence,

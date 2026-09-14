@@ -180,7 +180,12 @@ def healthz():
             # งานที่สองติดมาด้วยไหม · mount พังแบบเงียบๆ คือสิ่งที่ต้องมองเห็นจากที่นี่
             # ไม่ใช่ไปรู้ตอนปลายทางยิง /people/v1/persons แล้วได้ 404 จาก FastAPI
             "people_mounted": PEOPLE_MOUNT_ERROR is None,
-            "people_error": PEOPLE_MOUNT_ERROR}
+            "people_error": PEOPLE_MOUNT_ERROR,
+            # งานที่สาม (LPR) เช่นเดียวกัน · เพิ่มบริการใหม่แล้วไม่รายงานที่นี่
+            # = mount พังเงียบ แล้วไปรู้ตอนปลายทางยิงแล้วได้ 404 จาก FastAPI
+            # ซึ่งหน้าตาเหมือน "เขียน path ผิด" ทุกประการ
+            "lpr_mounted": LPR_MOUNT_ERROR is None,
+            "lpr_error": LPR_MOUNT_ERROR}
 
 
 @app.post("/v1/frames", response_model=FrameOut)
@@ -421,3 +426,24 @@ if os.environ.get("PEOPLE_ENABLED", "true").lower() == "true":
         print(f"[startup] 🔴 mount /people ไม่สำเร็จ: {PEOPLE_MOUNT_ERROR}", flush=True)
 else:
     PEOPLE_MOUNT_ERROR = "disabled by PEOPLE_ENABLED=false"
+
+
+# ---------------------------------------------------------------- งานที่สาม
+# 🔴 อ่านป้ายทะเบียนไทย (LPR) · คนละ endpoint คนละแพ็กเกจ คนละฐานข้อมูล
+#
+# repo เดียวกันตามที่ Toy สั่ง 2026-09-14 แต่ **ไม่แตะของเดิมเลย** เหมือนตอน
+# เพิ่มงานคน · สามบรรทัดนี้คือทั้งหมดที่ app/ เปลี่ยนอีกครั้ง
+#
+# ห่อ try ด้วยเหตุผลเดิม: **งานใหม่พังต้องไม่ทำให้อีกสองงานตาย**
+# ระบบเตือนช้างที่ล่มเพราะบริการที่เพิ่งเพิ่ม คือราคาที่ไม่มีใครตกลงจะจ่าย
+if os.environ.get("LPR_ENABLED", "true").lower() == "true":
+    try:
+        from lpr.main import app as lpr_app  # noqa: E402
+
+        app.mount("/lpr", lpr_app)
+        LPR_MOUNT_ERROR: str | None = None
+    except Exception as e:  # noqa: BLE001
+        LPR_MOUNT_ERROR = f"{type(e).__name__}: {e}"
+        print(f"[startup] 🔴 mount /lpr ไม่สำเร็จ: {LPR_MOUNT_ERROR}", flush=True)
+else:
+    LPR_MOUNT_ERROR = "disabled by LPR_ENABLED=false"

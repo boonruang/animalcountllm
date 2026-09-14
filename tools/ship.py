@@ -80,14 +80,18 @@ def check_version_bumped() -> None:
 
     ไม่มีตัวนี้ = ไม่มีทางรู้ว่า DO รันคอมมิตไหนอยู่ ซึ่งเสียเวลาไปแล้วสามรอบ
 
-    🔴 ตรวจสองงานแยกกัน เพราะ **ปลายทางคนละทีม** งานช้างมี APP_VERSION
-    งานคนมี PEOPLE_VERSION · ของเดิมเห็นแค่ `app/` แปลว่าแก้ `people/` ทั้งก้อน
-    แล้วลืมขยับเลข ด่านนี้ก็ไม่ร้อง ซึ่งเป็นรูเดียวกับที่ check_tests เพิ่งโดน:
-    ด่านที่รู้จัก repo แค่บางส่วน จะล้าสมัยวันที่ repo โตขึ้น
+    🔴 ตรวจแยกกันทุกงาน เพราะ **ปลายทางคนละทีม** งานช้างมี APP_VERSION
+    งานคนมี PEOPLE_VERSION งาน LPR มี LPR_VERSION · ของเดิมเห็นแค่ `app/`
+    แปลว่าแก้ `people/` ทั้งก้อนแล้วลืมขยับเลข ด่านนี้ก็ไม่ร้อง ซึ่งเป็นรูเดียว
+    กับที่ check_tests เคยโดน: **ด่านที่รู้จัก repo แค่บางส่วน จะล้าสมัยวันที่
+    repo โตขึ้น และมันจะล้าสมัยแบบเขียว** ไม่ใช่แบบที่มีใครเห็น
+
+    เพิ่มบริการใหม่ใต้ repo นี้เมื่อไหร่ ต้องมาเติมแถวในตารางนี้ด้วยเสมอ
     """
     changed = run("diff", "--name-only", "origin/main..dev").splitlines()
     for prefix, path, const in (("app/", "app/main.py", "APP_VERSION"),
-                                ("people/", "people/main.py", "PEOPLE_VERSION")):
+                                ("people/", "people/main.py", "PEOPLE_VERSION"),
+                                ("lpr/", "lpr/main.py", "LPR_VERSION")):
         if not any(f.startswith(prefix) for f in changed):
             continue
         cur = run("show", f"HEAD:{path}", check=False)

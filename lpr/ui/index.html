@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>อ่านป้ายทะเบียน · ทดสอบด้วยตา</title>
+<!--
+  หน้านี้เรียก API ตัวเดียวกับที่ปลายทางเรียก ไม่มีทางลัด ไม่มี mock
+  เห็นอะไรที่นี่ = ปลายทางเห็นอย่างนั้น
+
+  🔴 ไม่มีตารางแปลอังกฤษ->ไทย ในไฟล์นี้ · API แปลมาให้แล้ว (lpr/th.py)
+  ตารางแปลชุดที่สองในหน้าเว็บ คือของที่เพิ่งถอดทิ้งไปจากหน้า /people/verify
+  ด้วยเหตุผลว่ามันหลุดจากกันเงียบๆ · อย่าเอากลับมา
+-->
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<style>
+  body { background:#f6f7f9; font-family:system-ui,-apple-system,"Segoe UI",sans-serif; }
+  .wrap { max-width: 940px; }
+  .plate {
+    font-size: 1.8rem; font-weight: 700; letter-spacing: .06em;
+    background:#fff; border:3px solid #222; border-radius:.5rem;
+    padding:.2rem .9rem; display:inline-block; line-height:1.25;
+  }
+  .plate small { display:block; font-size:.85rem; font-weight:500; letter-spacing:0; }
+  .plate.unread { border-style:dashed; border-color:#adb5bd; color:#adb5bd; font-size:1.1rem; }
+  .vcard { background:#fff; border:1px solid #e3e6ea; border-radius:.6rem; margin-bottom:1rem; }
+  .vh { padding:.65rem .9rem; border-bottom:1px solid #eef0f2; display:flex;
+        justify-content:space-between; align-items:center; gap:.5rem; flex-wrap:wrap; }
+  .attr th { width:38%; font-weight:500; color:#6c757d; }
+  pre { background:#0d1117; color:#c9d1d9; padding:.8rem; border-radius:.4rem;
+        font-size:.78rem; max-height:22rem; overflow:auto; }
+  #drop { border:2px dashed #ced4da; border-radius:.6rem; padding:2rem; text-align:center;
+          background:#fff; cursor:pointer; }
+  #drop.hot { border-color:#0d6efd; background:#f1f7ff; }
+  #preview { max-height:260px; border-radius:.4rem; }
+</style>
+</head>
+<body>
+<div class="container wrap py-4">
+
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-car-front me-2"></i>อ่านป้ายทะเบียนไทย</h4>
+    <span id="hdr-badge"></span>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-md-5">
+      <label class="form-label small text-muted mb-1">รหัสกล้อง</label>
+      <input id="cam" class="form-control form-control-sm" value="verify-lpr">
+    </div>
+    <div class="col-md-5">
+      <label class="form-label small text-muted mb-1">เลขอ้างอิงของคุณ (ไม่บังคับ)</label>
+      <input id="cref" class="form-control form-control-sm" placeholder="เช่น gate-2026-0001">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small text-muted mb-1">API key</label>
+      <input id="key" type="password" class="form-control form-control-sm" placeholder="ถ้ามี">
+    </div>
+  </div>
+
+  <div id="drop" class="mb-3">
+    <i class="bi bi-image fs-2 text-muted"></i>
+    <div class="mt-2">ลากภาพมาวาง หรือคลิกเพื่อเลือกไฟล์</div>
+    <div class="small text-muted">ภาพรถทั้งคัน หรือครอปเฉพาะป้ายก็ได้</div>
+    <input id="file" type="file" accept="image/*" hidden>
+  </div>
+
+  <div id="prewrap" class="mb-3 d-none">
+    <img id="preview" class="me-3">
+    <button id="go" class="btn btn-primary"><i class="bi bi-search me-1"></i>อ่านป้าย</button>
+    <span id="spin" class="ms-2 d-none"><span class="spinner-border spinner-border-sm"></span>
+      <span class="text-muted small ms-1">กำลังอ่าน...</span></span>
+  </div>
+
+  <div id="out"></div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const BADGE = { 'ok':'success', 'partial':'warning', 'degraded':'danger', 'error':'danger' };
+
+// สีพื้นป้าย · คีย์เป็นคำไทยที่ API ส่งมา (lpr/th.py)
+// test_คำไทยในหน้า_verify_lpr_ต้องตรงกับ_lpr_th เฝ้าไม่ให้สองที่หลุดจากกัน
+const PC = { 'ขาว':'#ffffff', 'เหลือง':'#ffd43b', 'เขียว':'#2f9e44', 'แดง':'#e03131',
+             'น้ำเงิน':'#1971c2', 'ดำ':'#212529', 'ส้ม':'#fd7e14',
+             'สีอื่น':'#adb5bd', 'ไม่ทราบ':'#dee2e6' };
+
+let b64 = null;
+
+$('#drop').onclick = () => $('#file').click();
+$('#drop').ondragover = e => { e.preventDefault(); $('#drop').classList.add('hot'); };
+$('#drop').ondragleave = () => $('#drop').classList.remove('hot');
+$('#drop').ondrop = e => {
+  e.preventDefault(); $('#drop').classList.remove('hot');
+  if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0]);
+};
+$('#file').onchange = e => e.target.files[0] && load(e.target.files[0]);
+
+function load(f) {
+  const r = new FileReader();
+  r.onload = () => {
+    b64 = r.result.split(',')[1];
+    $('#preview').src = r.result;
+    $('#prewrap').classList.remove('d-none');
+    $('#out').innerHTML = '';
+  };
+  r.readAsDataURL(f);
+}
+
+$('#go').onclick = async () => {
+  if (!b64) return;
+  $('#spin').classList.remove('d-none');
+  $('#go').disabled = true;
+  const body = { camera_id: $('#cam').value || 'verify-lpr', image_base64: b64 };
+  if ($('#cref').value) body.client_request_id = $('#cref').value;
+  const h = { 'Content-Type': 'application/json' };
+  if ($('#key').value) h['X-API-Key'] = $('#key').value;
+  const t0 = performance.now();
+  try {
+    const r = await fetch('/lpr/v1/vehicle', { method:'POST', headers:h,
+                                               body: JSON.stringify(body) });
+    const j = await r.json();
+    render(j, Math.round(performance.now() - t0));
+  } catch (e) {
+    $('#out').innerHTML = `<div class="alert alert-danger">ยิง API ไม่สำเร็จ: ${esc(e)}</div>`;
+  } finally {
+    $('#spin').classList.add('d-none');
+    $('#go').disabled = false;
+  }
+};
+
+function vehicle(v) {
+  const p = v.plate || {};
+  // 🔴 ป้ายที่อ่านไม่ออก แสดงเป็นกรอบประ + ข้อความดิบที่โมเดลอ่านมา
+  // ไม่ใช่ซ่อนทิ้ง · คนที่นั่งตรวจต้องเห็นว่ามันอ่านอะไรมา ถึงจะรู้ว่าพลาดตรงไหน
+  const plateBox = p.text
+    ? `<span class="plate" style="background:${PC[p.color] ?? '#fff'};
+         color:${p.color === 'ดำ' ? '#fff' : '#111'}">${esc(p.text)}
+         ${v.province ? `<small>${esc(v.province)}</small>` : ''}</span>`
+    : `<span class="plate unread">อ่านไม่ออก${
+         p.text_raw ? ` · โมเดลอ่านมาว่า &ldquo;${esc(p.text_raw)}&rdquo;` : ''}</span>`;
+  return `<div class="vcard">
+    <div class="vh">
+      <span><b>${esc(v.ref)}</b>
+        <span class="badge text-bg-secondary ms-2">${esc(v.vehicle_type)}</span>
+        ${v.vehicle_color ? `<span class="badge text-bg-light text-dark">${esc(v.vehicle_color)}</span>` : ''}
+      </span>
+      <span class="badge text-bg-${BADGE[v.status] ?? 'secondary'}">${esc(v.status)}</span>
+    </div>
+    <div class="p-3">
+      <div class="mb-3">${plateBox}</div>
+      ${v.description ? `<div class="mb-2">${esc(v.description)}</div>` : ''}
+      ${v.where ? `<div class="small text-muted mb-2"><i class="bi bi-geo-alt me-1"></i>${esc(v.where)}</div>` : ''}
+      ${v.reason ? `<div class="alert alert-warning py-2 small mb-2">${esc(v.reason)}</div>` : ''}
+      <table class="table table-sm attr mb-0"><tbody>
+        <tr><th>เลขนำหน้า / ตัวอักษร / ตัวเลข</th>
+            <td>${esc(p.prefix || '-')} / ${esc(p.letters || '-')} / ${esc(p.digits || '-')}</td></tr>
+        <tr><th>จังหวัด</th><td>${esc(v.province || 'อ่านไม่ได้')}
+            ${v.province ? `<span class="text-muted small">(${v.province_confidence})</span>` : ''}</td></tr>
+        <tr><th>สีพื้นป้าย</th><td>${esc(p.color)}</td></tr>
+        <tr><th>ความมั่นใจต่อตัวอักษร</th><td>${p.confidence}</td></tr>
+        <tr><th>ชนิดรถ</th><td>${esc(v.vehicle_type)}
+            <span class="text-muted small">(${v.vehicle_type_confidence})</span></td></tr>
+      </tbody></table>
+    </div></div>`;
+}
+
+function render(j, wall) {
+  $('#hdr-badge').innerHTML =
+    `<span class="badge text-bg-${BADGE[j.status] ?? 'secondary'}">${esc(j.status)}</span>`;
+  const s = j.summary || {};
+  const head = j.reason
+    ? `<div class="alert alert-warning py-2"><b>อ่านภาพนี้ไม่ได้:</b> ${esc(j.reason)}</div>`
+    : ((j.vehicles || []).length ? '' :
+       `<div class="alert alert-secondary py-2">ไม่พบป้ายทะเบียนในภาพนี้
+        <span class="text-muted">(เป็นคำตอบจริง ไม่ใช่ระบบพัง)</span></div>`);
+  $('#out').innerHTML = head + (j.vehicles || []).map(vehicle).join('') + `
+    <table class="table table-sm mb-3"><tbody class="attr">
+      <tr><th>พบรถ</th><td>${s.vehicles_found ?? 0} คัน ·
+          อ่านป้ายได้ ${s.plates_read ?? 0} · อ่านไม่ได้ ${s.plates_unread ?? 0}</td></tr>
+      <tr><th>เวลา</th><td>${wall} ms (ฝั่งเรา ${j.timing_ms?.total ?? '-'} ms)</td></tr>
+      <tr><th>ภาพที่อ่าน</th><td>${j.image?.w}x${j.image?.h} · ${esc(j.image?.source)}</td></tr>
+      <tr><th>Request ID</th><td class="font-monospace small">${esc(j.request_id)}</td></tr>
+    </tbody></table>
+    <details><summary class="text-muted small">ดูข้อมูลดิบทั้งหมด</summary>
+      <pre class="mt-2 mb-0">${esc(JSON.stringify(j, null, 2))}</pre></details>`;
+}
+</script>
+</body>
+</html>

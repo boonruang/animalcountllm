@@ -58,9 +58,10 @@ from .store.base import DetectionRecord, FrameRecord, make_store  # noqa: E402
 # ปลายทางแยกออกว่าจำนวนมาจากไหนด้วย model.prompt_version (v3 = โมเดลนับเอง)
 PIPELINE = os.environ.get("PIPELINE", "llm").lower()
 
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.6.1"
 BUILD_NOTES = ("llm-first pipeline (prompt v3, no CV gate), thermal + colour"
-               " · + smart people counting mounted at /people")
+               " · + smart people counting mounted at /people"
+               " · + thai licence plate reader mounted at /lpr")
 
 app = FastAPI(title="animalcountllm", version=APP_VERSION)
 

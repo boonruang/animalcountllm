@@ -484,6 +484,69 @@ def test_prompt_ห้ามมีทะเบียนจริงหรือ�
     assert prompt_v1.PROMPT_VERSION == "v5"
 
 
+def test_ภาพเล็กถูกขยายก่อนส่งเข้าโมเดล_ภาพใหญ่ไม่ถูกแตะ(monkeypatch):
+    """🔴 วัดจริง 2026-09-16 · ตัวแปรที่ตัดสินความแม่นคือขนาดป้ายในภาพ ไม่ใช่ prompt
+
+    Celica 744x459 (ป้าย 134x86 px) ยิงซ้ำ 5 รอบได้ `6กง 3869` ผิดทั้ง 5 รอบ
+    **และผ่านด่านรูปแบบทั้ง 5 รอบเพราะรูปมันถูก** · ขยายสองเท่าแล้วถูก 5/5
+    แก้ prompt สามรุ่นก่อนหน้าไม่ขยับเข็มเลย
+
+    เทสต์นี้เฝ้าสองฝั่ง: ภาพเล็กต้องถูกขยาย และภาพที่ใหญ่พออยู่แล้ว **ห้ามถูกแตะ**
+    (ขยายซ้ำ = เปลือง token กับแบนด์วิดท์โดยไม่ได้อะไรกลับมา)
+    """
+    seen = {}
+
+    def spy(self, image_b64, w, h, *a, **kw):
+        seen["b64"] = image_b64
+        seen["wh"] = (w, h)
+        return LPRResult(ONE_CAR, "{}", "stop", 10, 1.0)
+
+    monkeypatch.setattr(lm.llm.__class__, "read", spy)
+    small = _png(300, 200)
+    r = client.post("/v1/vehicle", json={"camera_id": "c", "image_base64": small})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    # ด้านสั้น 200 -> ต้องถูกขยายถึง MIN_IMAGE_PX
+    assert min(seen["wh"]) >= lm.MIN_IMAGE_PX
+    assert seen["b64"] != small, "ภาพเล็กต้องถูกขยาย ไม่ใช่ส่งของเดิม"
+    # ขนาดที่รายงานกลับต้องเป็นขนาดที่โมเดลเห็นจริง ไม่ใช่ขนาดที่ปลายทางส่งมา
+    assert (d["image"]["w"], d["image"]["h"]) == seen["wh"]
+    assert d["image"]["source"] == "full_image"
+
+    big = _png(2400, 1600)
+    r = client.post("/v1/vehicle", json={"camera_id": "c", "image_base64": big})
+    assert r.status_code == 200
+    assert seen["b64"] == big, "ภาพที่ใหญ่พออยู่แล้วต้องไม่ถูกแตะ"
+
+    # ปิดสวิตช์แล้วต้องไม่แตะอะไรเลย
+    monkeypatch.setattr(lm, "MIN_IMAGE_PX", 0)
+    r = client.post("/v1/vehicle", json={"camera_id": "c", "image_base64": small})
+    assert r.status_code == 200
+    assert seen["b64"] == small
+
+
+def test_ส่ง_bbox_มาแล้วขยายด้วยเส้นเดิม_ไม่ใช่สองชั้น(monkeypatch):
+    """มี bbox = ครอปแล้วขยายด้วย `MIN_CROP_PX` ตามเดิม · `_upscale` ต้องไม่แตะซ้ำ
+
+    ขยายสองชั้นคือภาพที่ถูก resample สองรอบ ซึ่งเบลอกว่ารอบเดียวเสมอ
+    """
+    seen = {}
+
+    def spy(self, image_b64, w, h, *a, **kw):
+        seen["wh"] = (w, h)
+        return LPRResult(ONE_CAR, "{}", "stop", 10, 1.0)
+
+    monkeypatch.setattr(lm.llm.__class__, "read", spy)
+    r = client.post("/v1/vehicle", json={"camera_id": "c", "image_base64": _png(640, 360),
+                                         "bbox": [100, 100, 200, 80]})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["image"]["source"] == "bbox_crop"
+    assert min(seen["wh"]) >= lm.MIN_CROP_PX
+    # ครอปแล้วต้องเล็กกว่าเกณฑ์ภาพเต็ม ไม่ถูกดันต่อจนใหญ่เกินจำเป็น
+    assert min(seen["wh"]) < lm.MIN_IMAGE_PX
+
+
 # ------------------------------------------------------------------ bbox
 def test_ส่ง_bbox_มาแล้วเราครอปเอง_และบอกกรอบที่ใช้จริง(monkeypatch):
     """กรอบที่คืนไป **ไม่ใช่ค่าเดียวกับที่ส่งมา** เพราะเผื่อขอบแล้วหนีบขอบภาพแล้ว

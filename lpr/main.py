@@ -56,7 +56,7 @@ from .th import thai
 # แยกจาก APP_VERSION (ช้าง) และ PEOPLE_VERSION (คน) โดยตั้งใจ
 # สามงาน deploy ไปด้วยกันก็จริง แต่ปลายทางคนละทีม ต้องตอบได้แยกกันว่า
 # "ของที่คุณเรียกอยู่เวอร์ชันอะไร" · tools/ship.py ตรวจทั้งสามตัว
-LPR_VERSION = "0.5.0"
+LPR_VERSION = "0.6.0"
 BUILD_NOTES = ("thai licence plate OCR via VLM · plate split in code, not asked"
                " · 77-province closed set · prompt v1")
 
@@ -117,6 +117,21 @@ BBOX_MARGIN = float(os.environ.get("LPR_BBOX_MARGIN", "0.10"))
 # ไม่ได้แปลว่าโมเดลได้ image token เพิ่มเสมอไป · ตั้งไว้กัน provider ปฏิเสธภาพจิ๋ว
 # (ครอปป้ายจากกล้องไกลๆ เหลือ 60x25 px ได้สบาย)
 MIN_CROP_PX = int(os.environ.get("LPR_MIN_CROP_PX", "224"))
+
+# 🔴 ขยายภาพเต็มก่อนส่งเข้าโมเดล · วัดมาแล้ว 2026-09-16 ไม่ได้เดา
+#
+# ภาพจริงใบแรกของโครงนี้ (Celica 744x459 ป้ายกินแค่ 134x86 px) ยิงซ้ำ 5 รอบ
+# ได้ `6กง 3869` **ผิดทั้ง 5 รอบ และผ่านด่านรูปแบบทั้ง 5 รอบ** เพราะรูปมันถูก
+# ขยายภาพเป็นสองเท่าก่อนส่ง: ถูก 5/5 · ตัวแปรที่ตัดสินคือขนาดป้ายในภาพที่เข้าโมเดล
+# **ไม่ใช่ prompt** (แก้ prompt สามรุ่นแล้วเข็มไม่ขยับ)
+#
+# ของเดิม `MIN_CROP_PX` ขยายให้เฉพาะตอนปลายทางส่ง bbox มา ซึ่งเป็นเคสส่วนน้อย
+# ภาพเต็มไม่เคยถูกขยายเลย ทั้งที่เป็นเคสที่ป้ายเล็กที่สุด
+#
+# ⚠️ เพดานด้านยาวมีไว้กันภาพใหญ่อยู่แล้วโดนขยายซ้ำจนเปลือง token/แบนด์วิดท์
+# ภาพที่ใหญ่กว่าเกณฑ์อยู่แล้วไม่ถูกแตะเลย · ตั้ง LPR_MIN_IMAGE_PX=0 เพื่อปิด
+MIN_IMAGE_PX = int(os.environ.get("LPR_MIN_IMAGE_PX", "800"))
+MAX_IMAGE_PX = int(os.environ.get("LPR_MAX_IMAGE_PX", "2000"))
 
 # 🔴 หนึ่งภาพ หนึ่งคัน · Toy สั่ง 2026-09-16 ("เจตนาส่งคันเดียว")
 #
@@ -202,6 +217,36 @@ def _size_of(raw: bytes) -> Tuple[int, int]:
     from PIL import Image
     with Image.open(io.BytesIO(raw)) as im:
         return im.size
+
+
+def _upscale(raw: bytes) -> Optional[Tuple[str, int, int]]:
+    """ขยายภาพเล็กให้ด้านสั้นถึง `MIN_IMAGE_PX` · คืน None เมื่อไม่ต้องขยาย
+
+    ขยายเฉยๆ ไม่ครอป ไม่หมุน ไม่แต่งสี · เราไม่รู้ว่าป้ายอยู่ตรงไหนในภาพ
+    และ **ไม่ควรเดาด้วย** (โมเดลให้พิกัดที่เชื่อไม่ได้ ดูบทเรียน bbox ฝั่งช้าง)
+    ขยายทั้งภาพจึงเป็นทางเดียวที่ทำได้โดยไม่ต้องรู้ตำแหน่ง
+
+    LANCZOS ไม่ได้เพิ่มรายละเอียดที่ไม่มีอยู่ · ที่มันช่วยคือทำให้ตัวอักษรใหญ่พอ
+    ที่ตัวแบ่ง patch ของ VLM จะไม่ยุบสองตัวอักษรเข้าเป็น patch เดียว ซึ่งตรงกับ
+    อาการที่วัดได้: ป้ายเล็ก อ่าน "ว" เป็น "ง"/"7" · ป้ายใหญ่ อ่านถูกทุกครั้ง
+    """
+    from PIL import Image
+
+    if MIN_IMAGE_PX <= 0:
+        return None
+    with Image.open(io.BytesIO(raw)) as im:
+        im = im.convert("RGB")
+        w, h = im.size
+        if min(w, h) >= MIN_IMAGE_PX:
+            return None
+        scale = min(MIN_IMAGE_PX / min(w, h), MAX_IMAGE_PX / max(w, h))
+        if scale <= 1.0:
+            return None
+        big = im.resize((max(1, int(w * scale)), max(1, int(h * scale))),
+                        Image.LANCZOS)
+        buf = io.BytesIO()
+        big.save(buf, format="JPEG", quality=95)
+        return base64.b64encode(buf.getvalue()).decode(), big.width, big.height
 
 
 def _crop(raw: bytes, bbox: List[int]) -> Tuple[str, int, int, List[int]]:
@@ -362,6 +407,8 @@ def healthz():
             # ปลายทางต้องรู้ว่าเลขท้ายสั้นกว่าสี่หลักถูกรับหรือถูกตีตก
             "allow_short_digits": ALLOW_SHORT_DIGITS,
             "bbox_margin": BBOX_MARGIN, "min_crop_px": MIN_CROP_PX,
+            # ภาพเล็กกว่านี้ถูกขยายก่อนเข้าโมเดล · วัดแล้วว่าเปลี่ยนคำตอบจริง
+            "min_image_px": MIN_IMAGE_PX, "max_image_px": MAX_IMAGE_PX,
             "save_images": SAVE_IMAGES,
             "store_path": STORE_DSN, "store_error": STORE_ERROR,
             "auth_required": bool(API_KEY), "tracing": llm.tracing}
@@ -406,6 +453,12 @@ def post_vehicle(body: VehicleIn, x_api_key: Optional[str] = Header(default=None
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         info = ImageInfo(w=cw, h=ch, source="bbox_crop", bbox_used=used)
+    else:
+        # ไม่มี bbox = เคสที่ป้ายเล็กที่สุด และเป็นเคสที่ขยายแล้วต่างที่สุด
+        bigger = _upscale(raw_bytes)
+        if bigger:
+            b64, info = bigger[0], ImageInfo(w=bigger[1], h=bigger[2],
+                                             source="full_image")
     decode_ms = round((time.perf_counter() - t_decode) * 1000, 1)
 
     store.insert_request(request_id, body.camera_id, now, body.note,

@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS vehicles (
   plate_text        TEXT,          -- ที่ประกอบกลับแล้ว ว่าง = แยกไม่ออก
   plate_text_raw    TEXT,          -- ที่โมเดลอ่านมาดิบๆ หลักฐาน
   plate_prefix      TEXT, plate_letters TEXT, plate_digits TEXT,
+  plate_pattern     TEXT,          -- province / bangkok / unknown (v0.2.0)
   plate_color       TEXT, plate_confidence REAL,
   province          TEXT, province_confidence REAL,
   vehicle_type      TEXT, vehicle_type_confidence REAL,
@@ -100,8 +101,13 @@ class PlateStore:
         `_migrate()` ยังไม่ทันเติม แล้ว **ฐานข้อมูลเก่าเปิดไม่ขึ้นทั้งไฟล์**
         (2026-09-12) · ตอนนี้ยังไม่มีคอลัมน์ที่ต้อง migrate เพราะเป็นเวอร์ชันแรก
         แต่โครงอยู่ตรงนี้แล้ว เติมต่อได้เลยโดยไม่ต้องคิดใหม่
+
+        2026-09-16 · `plate_pattern` เป็นคอลัมน์แรกที่ต้อง migrate จริง
+        แถวเก่าจะเป็น NULL ซึ่งถูกต้อง: ตอนนั้นยังไม่มีการวัดรูปทะเบียน
+        เติมค่าย้อนหลังให้ = แกล้งทำเป็นว่ารู้สิ่งที่ตอนนั้นไม่ได้วัด
         """
-        for table, cols in (("vehicles", ()), ("lpr_requests", ())):
+        for table, cols in (("vehicles", (("plate_pattern", "TEXT"),)),
+                            ("lpr_requests", ())):
             if not cols:
                 continue
             have = {r["name"] for r in
@@ -137,7 +143,7 @@ class PlateStore:
             return
         cols = ("request_id", "ref", "camera_id", "ts", "status",
                 "plate_text", "plate_text_raw", "plate_prefix", "plate_letters",
-                "plate_digits", "plate_color", "plate_confidence",
+                "plate_digits", "plate_pattern", "plate_color", "plate_confidence",
                 "province", "province_confidence",
                 "vehicle_type", "vehicle_type_confidence", "vehicle_color",
                 "description", "overall_confidence", "reason", "where_text",

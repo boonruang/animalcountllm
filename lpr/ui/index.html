@@ -156,6 +156,7 @@ function vehicle(v) {
       ${v.where ? `<div class="small text-muted mb-2"><i class="bi bi-geo-alt me-1"></i>${esc(v.where)}</div>` : ''}
       ${v.reason ? `<div class="alert alert-warning py-2 small mb-2">${esc(v.reason)}</div>` : ''}
       <table class="table table-sm attr mb-0"><tbody>
+        <tr><th>รูปทะเบียน</th><td>${esc(p.pattern || '-')}</td></tr>
         <tr><th>เลขนำหน้า / ตัวอักษร / ตัวเลข</th>
             <td>${esc(p.prefix || '-')} / ${esc(p.letters || '-')} / ${esc(p.digits || '-')}</td></tr>
         <tr><th>จังหวัด</th><td>${esc(v.province || 'อ่านไม่ได้')}

@@ -443,6 +443,40 @@ def test_yes_no_ใช้คำต่างกันตามฟิลด์():
     assert d["facial_hair"] == "มี" and d["uniform"]["id_badge"] == "ไม่มี"
 
 
+def test_อารมณ์ออกเป็น_label_eng_คู่_label_th():
+    """🔴 Toy สั่ง 2026-09-16 · ทีมคุณสุชาติอ่านอังกฤษ เจ้าหน้าที่หน้างานอ่านไทย
+
+    ทั้งก้อนซ้อน (POST) กับแถวแบนจากฐาน (GET ย้อนหลัง) ต้องได้รูปเดียวกัน
+    ไม่งั้นหน้าเดียวกันดูสดกับดูย้อนหลังแล้ว parse คนละแบบ
+    """
+    import typing
+    from people import th
+    from people.schemas import Emotion
+
+    d = th.thai({"emotion": {"label": "neutral", "valence": 3,
+                             "confidence": 0.8}})["emotion"]
+    assert d == {"label_eng": "Neutral", "label_th": "เป็นกลาง",
+                 "valence": 3, "confidence": 0.8}
+    # ลำดับคีย์ก็ต้องเป็นตามนี้ ปลายทางอ่านด้วยตาบ่อยกว่าที่คิด
+    assert list(d) == ["label_eng", "label_th", "valence", "confidence"]
+    # คีย์เดิมหายไปจริง ไม่ใช่อยู่ต่อเงียบๆ
+    assert "label" not in d
+
+    flat = th.thai({"persons": [{"emotion_label": "happy", "emotion_valence": 4}]})
+    row = flat["persons"][0]
+    assert row["emotion_label_eng"] == "Happy"
+    assert row["emotion_label_th"] == "มีความสุข"
+    assert "emotion_label" not in row
+
+    # เพิ่มค่าใหม่ใน EmotionLabel แล้วลืมเติมคำอังกฤษ = ตกตรงนี้ ไม่ใช่หลุด
+    # ค่าตัวเล็กจากฐานไปโผล่ปนกับ Title case ให้ปลายทางเจอเอง
+    want = set(typing.get_args(Emotion.model_fields["label"].annotation))
+    eng = th.PAIRED["emotion.label"][2]
+    assert not want - set(eng), f"ไม่มีคำอังกฤษของ {sorted(want - set(eng))}"
+    for k in want:
+        assert eng[k] == k.title(), f"{k} ต้องเป็น Title case"
+
+
 def test_ค่าที่ไม่รู้จักปล่อยผ่าน_ไม่ใช่ทำให้พัง():
     """ตารางแปลไม่ใช่ด่านตรวจ · ด่านตรวจคือ normalize ที่ทำไปก่อนหน้านี้แล้ว"""
     from people.th import thai

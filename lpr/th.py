@@ -36,10 +36,18 @@ FIELD: Dict[str, Dict[str, str]] = {
     "plate_color": {"white": "ขาว", "yellow": "เหลือง", "green": "เขียว",
                     "red": "แดง", "blue": "น้ำเงิน", "black": "ดำ",
                     "orange": "ส้ม", "other": "สีอื่น", "unknown": _UNKNOWN},
+    # รูปทะเบียนที่อ่านได้ · **บอกรูปของตัวหนังสือ ไม่ได้บอกจังหวัดที่จดทะเบียน**
+    # เขียนตัวอย่างไว้ในคำแปลเลย เพราะคนอ่านหน้าเว็บไม่ได้เปิด schema อ่านตาม
+    "plate_pattern": {"two_letter": "สองอักษร (กข 1234)",
+                      "prefixed": "มีเลขนำหน้า (1กข 1234)",
+                      "three_letter": "สามอักษร (กขค 123)",
+                      "commercial": "รถบรรทุก/รถโดยสาร (10-0001)",
+                      "unknown": "ไม่เข้ารูปทะเบียนไทย"},
 }
 
 # ชื่อแบนที่อ่านออกมาจากฐานข้อมูล (เส้น GET ย้อนหลังใช้ชื่อพวกนี้)
 FIELD["plate.color"] = FIELD["plate_color"]
+FIELD["plate.pattern"] = FIELD["plate_pattern"]
 
 # 🔴 คีย์ที่ห้ามแปลเด็ดขาด แม้ชื่อจะไปพ้องกับตารางข้างบน
 # `text` `text_raw` `letters` `digits` `prefix` คือหลักฐานจากป้ายจริง

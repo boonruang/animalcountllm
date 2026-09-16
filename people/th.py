@@ -28,6 +28,10 @@
 
 `age_range` เป็นตัวเลข (`20-29`) · `emotion.valence` เป็นตัวเลข · ไม่ต้องแปล
 
+🔴 ข้อยกเว้นเดียวของกฎ "คีย์อังกฤษ ค่าไทย": `emotion.label` ออกเป็น **สองคีย์**
+`label_eng` ("Neutral") คู่กับ `label_th` ("เป็นกลาง") · เหตุผลอยู่ที่ `PAIRED`
+ข้างล่าง · คีย์ `label` เดิมไม่มีในคำตอบแล้ว
+
 `description` `where` `reason` `distinctive` เป็นภาษาไทยอยู่แล้วตั้งแต่ prompt
 
 🔴 คีย์ที่ไม่มีตารางแปล จะถูกปล่อยผ่านเฉยๆ ไม่ใช่ถูกเดา
@@ -145,6 +149,28 @@ FIELD["emotion_label"] = FIELD["emotion.label"]
 FIELD["group_type"] = FIELD["group.type"]
 FIELD["uniform_kind"] = FIELD["uniform.kind"]
 
+# 🔴 อารมณ์ออกเป็นคู่ `label_eng` + `label_th` · Toy สั่ง 2026-09-16
+#
+# ช่องเดียวที่ทั้งก้อนที่ออกเป็นสองคี้ย์ เพราะเป็นช่องเดียวที่ **ปลายทางสองฝั่ง
+# อ่านคนละภาษา**: ทีมคุณสุชาติมี FER ของเขาที่โชว์คำว่า "Neutral" บนจออยู่แล้ว
+# เขาต้องเอาไปเทียบตรงๆ ส่วนเจ้าหน้าที่หน้างานอ่านไทย · เลือกอย่างเดียวคือ
+# ทำให้อีกฝั่งต้องมีตารางแปลของตัวเอง ซึ่งคือตารางที่จะล้าสมัยเงียบๆ วันหนึ่ง
+#
+# สะกดเป็น Title case (`Neutral` ไม่ใช่ `neutral`) เพราะนี่คือ **ค่าสำหรับโชว์**
+# ค่าที่เอาไปเทียบกับฐานข้อมูลคือ `emotion_label` ตัวเล็กใน DB ที่ไม่ได้ขยับเลย
+# ช่องอื่นไม่ทำแบบนี้ · ทำทุกช่องคือ response บวมเท่าตัวเพื่อสิ่งที่ไม่มีใครขอ
+_EMOTION_ENG = {"neutral": "Neutral", "happy": "Happy", "sad": "Sad",
+                "angry": "Angry", "surprise": "Surprise", "fear": "Fear",
+                "disgust": "Disgust", "unknown": "Unknown"}
+
+# {คีย์ขาเข้า: (ชื่อคีย์อังกฤษ, ชื่อคีย์ไทย, ตารางอังกฤษ)}
+# ซ้อน (`emotion.label` จากเส้น POST) กับแบน (`emotion_label` จากแถวในฐาน) ต้อง
+# ได้รูปเดียวกัน ไม่งั้นหน้าเดียวกันดูสดกับดูย้อนหลังแล้ว parse คนละแบบ
+PAIRED: Dict[str, tuple] = {
+    "emotion.label": ("label_eng", "label_th", _EMOTION_ENG),
+    "emotion_label": ("emotion_label_eng", "emotion_label_th", _EMOTION_ENG),
+}
+
 # 🔴 คีย์ที่ห้ามแปลเด็ดขาด แม้ชื่อจะไปพ้องกับตารางข้างบน
 # มีไว้กันวันที่ใครเผลอเติม "status" หรือ "source" ลง FIELD
 NEVER = frozenset({"status", "source", "id", "ref", "request_id", "camera_id",
@@ -165,14 +191,25 @@ def thai(obj: Any, parent: str = "") -> Any:
 
     ของเดิมต้องไม่ถูกแก้ เพราะก้อนเดียวกันนั้นถูกเอาไปเขียนลงฐานข้อมูลด้วย
     ถ้าแก้ในที่ ฐานข้อมูลจะกลายเป็นไทยไปด้วยโดยไม่มีใครตั้งใจ
+
+    คีย์ใน `PAIRED` ออกเป็นสองคีย์แทนคีย์เดิม (`label` → `label_eng` + `label_th`)
+    คีย์เดิมหายไปจากคำตอบ ไม่ได้อยู่ต่อ · เก็บไว้ด้วยคือปล่อยให้ปลายทางอ่านช่องที่
+    เราไม่รู้ว่าเขาอ่านช่องไหน แล้ววันที่อยากขยับก็ขยับไม่ได้อีกเลย
     """
     if isinstance(obj, dict):
         out = {}
         for k, v in obj.items():
             if isinstance(v, (dict, list)):
                 out[k] = thai(v, k)
+                continue
+            path = f"{parent}.{k}" if parent else k
+            pair = PAIRED.get(path) or PAIRED.get(k)
+            if pair and isinstance(v, str) and k not in NEVER:
+                eng_key, th_key, eng_table = pair
+                out[eng_key] = eng_table.get(v, v)
+                out[th_key] = _value(path, k, v)
             else:
-                out[k] = _value(f"{parent}.{k}" if parent else k, k, v)
+                out[k] = _value(path, k, v)
         return out
     if isinstance(obj, list):
         # list ของ string คือ `carrying` ซึ่งแปลด้วยตารางของคีย์ที่มันอยู่

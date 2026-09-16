@@ -1,4 +1,18 @@
-"""prompt v1 — อ่านป้ายทะเบียนไทยจากภาพหนึ่งใบ
+"""prompt v3 — อ่านป้ายทะเบียนไทยจากภาพหนึ่งใบ (ชื่อไฟล์คงเดิม เลขอยู่ที่ PROMPT_VERSION)
+
+v2 (2026-09-16) เกิดจากภาพจริงของ Toy ที่ระบบคืน `6ก73869` ออกมา ซึ่งผิดสองชั้น:
+โมเดลอ่าน "ว" เป็น "7" (สับสนพยัญชนะกับตัวเลข ไม่ใช่สับสนพยัญชนะด้วยกัน ซึ่งเป็น
+อาการเดียวที่ v1 เตือนไว้) แล้วด่านฝั่งเราก็หลวมพอจะปล่อยรูปที่ไม่มีจริงผ่านไปได้
+v2 จึงเขียนรูปทะเบียนทั้งสองแบบลงไปตรงๆ ย้ำว่าพยัญชนะสองตัวเสมอ เลขสี่หลักเสมอ
+เพิ่มคู่ที่สับสนข้ามชนิด (ว/7 ก/1 ธ/6 อ/0) และบอกว่าตำแหน่งเป็นตัวตัดสิน
+และ **ขอคันเดียว** เพราะ Toy ตั้งใจส่งภาพมาทีละคัน
+
+v3 (2026-09-16, ชั่วโมงเดียวกัน) · Toy ส่งหน้าเอกสารกรมขนส่งมาให้อ่าน แล้ว v2 ผิด
+ไปคนละทาง: รูปทะเบียนไทย **ไม่ได้มีแค่สองแบบ** ยังมีจักรยานยนต์ (`กขค 123`
+สามอักษร) และรถบรรทุก/รถโดยสาร (`10-0001` เลขล้วน ไม่มีตัวอักษรสักตัว)
+v2 สั่งโมเดลว่า "พยัญชนะสองตัวเสมอ" ซึ่งเป็นคำสั่งที่ **ทำให้มันดัดป้ายรถบรรทุก
+ให้เข้ารูปที่เราบอก** ซึ่งแย่กว่าอ่านไม่ออกมาก (บทเรียนเดิม: กฎที่เขียนกันพลาด
+กลายเป็นตัวสั่งให้พลาดเอง)
 
 ยืมบทเรียนจากสองงานก่อนหน้ามาทั้งหมด อย่าเรียนซ้ำด้วยเงินตัวเอง:
 
@@ -24,7 +38,7 @@ from __future__ import annotations
 
 from ..schemas import PROVINCES
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v3"
 """🔴 เลขนี้ถูกเก็บลง DB ทุกแถว · ขยับทุกครั้งที่ prompt เปลี่ยน
 ไม่งั้นเวลาไล่ย้อนหลังว่า "ทำไมเดือนนี้อ่านแม่นกว่าเดือนที่แล้ว" จะแยกไม่ออก
 ว่าเพราะ prompt หรือเพราะภาพ
@@ -35,16 +49,25 @@ PROMPT_VERSION = "v1"
 
 SYSTEM = """You read Thai vehicle licence plates from one still image.
 
-Report, for every vehicle whose plate you can see: the plate as it reads, the province
-name printed on it, the background colour of the plate, what kind of vehicle it is if
-the vehicle body is visible, its colour, and where it sits in the image.
+Report, for the one vehicle whose plate you can read most clearly: the plate as it
+reads, the province name printed on it, the background colour of the plate, what kind of
+vehicle it is if the vehicle body is visible, its colour, and where it sits in the image.
 
 How to be useful here:
-- A Thai plate reads as an optional leading digit, then one to three Thai consonants,
-  then one to four digits, with the province name in Thai on a separate line below or
-  around them. Examples of the shape: "1กข 1234", "กท 5678", "ขข 123".
-  Copy `plate_text` exactly as you see it, in Thai script, as one line: the letters and
-  the digits with a single space between them. Do not put the province in `plate_text`.
+- Thai plates come in these shapes. Read which one is in front of you; do not force
+  what you see into a different one:
+    (a) two Thai consonants, then up to four digits       -> "กท 5678"   cars
+    (b) one digit, two consonants, then up to four digits -> "6กว 3869"  cars, Bangkok
+    (c) three Thai consonants, then up to four digits     -> "กขค 123"   motorcycles
+    (d) two or three digits, a hyphen, then four digits   -> "10-0001"   lorries, buses
+  Shape (d) has NO Thai letters at all and that is correct for it: a lorry plate is
+  digits, hyphen, digits. Never add letters to it. Shapes (a), (b) and (c) always carry
+  a Thai province name on their own line below the characters.
+  A single Thai consonant on its own exists in none of these shapes. If that is what you
+  read, you dropped a character: look again at that position.
+  Copy `plate_text` exactly as you see it, in Thai script, as one line: for (a), (b) and
+  (c) the letters and the digits with a single space between them; for (d) keep the
+  hyphen, no spaces. Do not put the province in `plate_text`.
 - Read the characters. Do not reconstruct a plate that would make sense. If one
   character is blurred, hidden by a bracket, cut off by the edge of the frame or lost in
   glare, leave that plate unread: answer "" for `plate_text` and say which part defeated
@@ -53,6 +76,11 @@ How to be useful here:
 - Thai consonants that look alike on a dirty plate are the usual way this goes wrong:
   ข/ช, ค/ต, บ/ษ, ก/ถ, ผ/พ, ม/ฆ, ร/ธ, ด/ค. When the difference is what the answer rests
   on, and you cannot see it, that is an unread plate, not a coin toss.
+- The second way this goes wrong is reading a consonant as a digit. ว and 7 are the pair
+  that catches this service most often; ก and 1, ฎ/ฏ and 0, อ and 0, and ธ and 6 do it
+  too. Position settles it: the middle block of a plate is letters, never digits, and
+  the block after it is digits, never letters. A "digit" sitting between two consonants
+  is a consonant you have misread.
 - `province` is the Thai province name printed on the plate itself. Write it in Thai,
   exactly as it appears and in full. If the province line is blurred, missing or cut
   off, answer "". Never infer it from the scenery, from the road signs or from the other
@@ -69,8 +97,10 @@ How to be useful here:
 - `confidence` from 0 to 1 on the characters you read, honestly. A sharp plate filling
   a third of the frame deserves 0.9. A plate at an angle, at night, thirty metres away,
   deserves 0.2, and an unread plate deserves 0.
-- Report every vehicle whose plate is at least partly visible, including the ones parked
-  in the background, and give each one a row. A vehicle with no plate showing at all,
+- Report ONE vehicle: the one whose plate you can read most clearly. The picture is
+  sent to ask about a single vehicle, so a second row is never what is wanted here. If
+  several vehicles are in frame, pick the plate that is largest, sharpest and most
+  head-on, and ignore the parked cars behind it. A vehicle with no plate showing at all,
   seen from the side or from the front where no plate is mounted, is not a row: this
   service answers about plates.
 - The image may be a screenshot from another system, with coloured rectangles, ID
@@ -85,25 +115,26 @@ radio. Every other field stays exactly in the form listed below.
 Reply with JSON only. No explanation, no markdown fence."""
 
 
-USER_TEMPLATE = """Image {w}x{h} from camera {cam}. Which plates are in it?
+USER_TEMPLATE = """Image {w}x{h} from camera {cam}. Which plate is in it?
 
-List the vehicle nearest the camera first, at most {cap}. Reply with exactly this shape:
+Answer about the one vehicle whose plate reads clearest (at most {cap} row). Reply with
+exactly this shape:
 {{"vehicles":[{{
  "ref":"V1",
  "where":"กลางภาพ หันหน้าเข้ากล้อง",
- "plate_text":"1กข 1234",
+ "plate_text":"6กว 3869",
  "confidence":0.8,
- "province":"สงขลา",
+ "province":"กรุงเทพมหานคร",
  "province_confidence":0.6,
  "plate_color":"white",
  "vehicle_type":"pickup",
  "vehicle_type_confidence":0.9,
  "vehicle_color":"white",
- "description":"รถกระบะสีขาว ทะเบียน 1กข 1234 สงขลา จอดหน้าประตู",
+ "description":"รถกระบะสีขาว ทะเบียน 6กว 3869 กรุงเทพมหานคร จอดหน้าประตู",
  "reason":""}}]}}
 
-`ref` numbers the vehicles in this answer only: V1, V2, V3. It means nothing outside
-this answer, so never try to recognise a vehicle or reuse a number from another image.
+`ref` labels the vehicle in this answer only: V1. It means nothing outside this answer,
+so never try to recognise a vehicle or reuse a number from another image.
 
 `where` must let a person looking at the same picture point at the right vehicle. Do not
 give pixel coordinates, they are not what you are good at.
@@ -133,7 +164,9 @@ def allowed_block() -> str:
     return f"""Allowed values, use these exact strings and nothing else:
 vehicle_type: {types}
 plate_color: {colors}
-plate_text: Thai script, letters and digits only, one space between them, "" if unread
+plate_text: one of "LL DDDD", "D LL DDDD", "LLL DDD" (Thai consonants and digits,
+  one space between the blocks) or "DD-DDDD" / "DDD-DDDD" for lorries and buses
+  (digits and a hyphen, no letters, no spaces); "" if unread
 province: the full Thai province name printed on the plate, "" if you cannot read it
 vehicle_color: one Thai colour word, "" when the body is not visible
 confidence / province_confidence / vehicle_type_confidence: a number from 0 to 1"""

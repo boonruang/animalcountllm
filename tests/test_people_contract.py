@@ -44,7 +44,8 @@ APPEARANCE = {"skin_tone", "build", "height", "hair_length", "hair_color",
 GARMENT = {"type", "color", "secondary_color", "pattern"}
 UNIFORM = {"kind", "color", "id_badge", "text"}
 GROUP = {"ref", "size", "type"}
-EMOTION = {"label", "valence", "confidence"}
+# 🔴 อารมณ์ออกเป็นคู่ eng/th · Toy สั่ง 2026-09-16 · คีย์ `label` เดิมต้อง**ไม่มี**
+EMOTION = {"label_eng", "label_th", "valence", "confidence"}
 MODEL = {"provider", "name", "prompt_version", "finish_reason", "completion_tokens"}
 TIMING = {"decode", "vlm", "vlm_sum", "total"}
 # 🔴 ยอดรวมของ Demographic Analytics · Toy สั่ง 2026-09-12
@@ -568,7 +569,10 @@ def test_อารมณ์เป็นสเกล_1_ถึง_5_และ_0_�
     assert set(e) == EMOTION
     assert isinstance(e["valence"], int) and 0 <= e["valence"] <= 5
     # โมเดลต่อไม่ติดในเทสต์ = ไม่เคยดูหน้าใคร = ต้องเป็น 0 ไม่ใช่ 3
-    assert e["valence"] == 0 and e["label"] == TH["emotion.label"]["unknown"]
+    assert e["valence"] == 0 and e["label_th"] == TH["emotion.label"]["unknown"]
+    assert e["label_eng"] == "Unknown"
+    # คีย์เดิมต้องหายไปจริงๆ ไม่ใช่อยู่ต่อเงียบๆ คู่กับของใหม่
+    assert "label" not in e
 
 
 def test_สัญชาติปิดอยู่โดยค่าเริ่มต้น_และ_healthz_บอกตรงๆ_ว่าปิด():

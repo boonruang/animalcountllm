@@ -53,13 +53,56 @@ _PROVINCE_ALIAS = {
 # ถ้าไม่แปลง regex จะแยกไม่ออกแล้วป้ายที่อ่านถูกจะกลายเป็น "อ่านไม่ออก"
 _THAI_DIGITS = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
 
-# 🔴 รูปของป้ายทะเบียนไทย · เลขนำหน้า (ไม่บังคับ) + พยัญชนะไทย 1-3 ตัว + เลข 1-4 หลัก
+# 🔴 รูปของป้ายทะเบียนไทย · ไล่จากเอกสารจริง ไม่ได้เดา (Toy ส่งลิงก์มา 2026-09-16)
+# ที่มา: th.wikipedia.org/wiki/ป้ายทะเบียนรถของประเทศไทย · ดึง wikitext มาอ่านเอง
+#
+#   two_letter   `กข 1234`   พยัญชนะ 2 + เลข        รถยนต์ส่วนบุคคลทุกจังหวัด รวม กทม. เก่า
+#   prefixed     `6กว 3869`  เลข 1 + พยัญชนะ 2 + เลข  กทม. ตั้งแต่ 2555 และจังหวัดที่หมวดเต็ม
+#   three_letter `กขค 123`   พยัญชนะ 3 + เลข          จักรยานยนต์รุ่นปัจจุบัน
+#   commercial   `10-0001`   เลข 2-3 + ขีด + เลข 4    รถบรรทุก/รถโดยสาร (พ.ร.บ.ขนส่ง 2522)
+#
+# ชื่อ pattern เป็น **ชื่อของรูป ไม่ใช่ชื่อประเภทรถหรือจังหวัด** ตั้งใจแบบนั้น:
+# ต้นฉบับบอกว่ารูป `กข 1234` ใช้ทั้ง ตจว. และ กทม. ยุคก่อน 2555 ("province" จึงผิด)
+# และรูป 3 ตัวอักษรก็เป็นป้ายประมูลได้ ไม่ใช่มอเตอร์ไซค์เสมอไป
+#
+# ⚠️ ที่ **ยังไม่รับ** และรู้ตัวว่าไม่รับ: ป้ายทูต (`ท 01-1234`) · ป้ายหลวง (`ร.ย.ล.`)
+# ป้ายรถนำเข้า/ส่งออก (`TC`/`QC` + เลข) · ป้ายเดินทางต่างประเทศที่เป็นอักษรโรมัน
+# · ป้ายประมูลอักษรส่วนบุคคลที่ **มีวรรณยุกต์ได้** ซึ่ง `[ก-ฮ]` ไม่ครอบ
+# ทั้งหมดนี้ตกเป็น unknown พร้อม `text_raw` เก็บไว้ ไม่ได้หายไปไหน
 #
 # ช่วง `ก-ฮ` ครอบพยัญชนะไทยทั้ง 44 ตัว **โดยไม่รวมสระและวรรณยุกต์**
-# ซึ่งสำคัญ: ถ้าเขียนเป็น `[ก-๙]` แบบหลวมๆ ป้ายที่โมเดลอ่านเพี้ยนเป็นสระ
-# จะผ่านด่านนี้ไปเป็น "ทะเบียนที่อ่านได้" ทั้งที่มันไม่ใช่ทะเบียน
-_PLATE_RE = re.compile(
-    r"^(?P<prefix>[0-9]{0,2})\s*(?P<letters>[ก-ฮ]{1,3})\s*(?P<digits>[0-9]{1,4})$")
+# ซึ่งสำคัญ: เขียนเป็น `[ก-๙]` แบบหลวมๆ เมื่อไหร่ ป้ายที่โมเดลอ่านเพี้ยนเป็นสระ
+# จะผ่านไปเป็น "ทะเบียนที่อ่านได้" ทั้งที่ไม่ใช่ทะเบียน
+#
+# 🔴 เลขท้ายกี่หลัก · ตรงนี้คือจุดที่เอกสารกับคำสั่งหน้างานไม่ตรงกัน
+# ต้นฉบับ: "ตามด้วยหมายเลขอารบิกสูงสุด 4 หลัก ตั้งแต่ 1 ถึง 9999 โดยไม่มีเลขศูนย์
+# นำหน้า ตัวอย่างเช่น `กข 1` หรือ `กข 1234`" · แต่ Toy ยืนยันสองรอบว่าไซต์นี้
+# เลขท้ายสี่ตัวเสมอ · **ค่าเริ่มต้นจึงบังคับสี่หลัก** เพราะมันเป็นด่านเดียวที่จับ
+# "โมเดลอ่านเลขขาดไปหนึ่งตัว" ได้ · ผ่อนเป็น 1-4 หลักด้วย LPR_ALLOW_SHORT_DIGITS=true
+# เมื่อไซต์เจอทะเบียนเลขสวยจริง · **เปิดแล้วเสียด่านนั้นไป** `3869` ที่อ่านได้แค่ `3`
+# จะกลายเป็นทะเบียนที่ถูกต้องทันที นั่นคือราคาของการรับเลขสั้น
+ALLOW_SHORT_DIGITS = os.environ.get("LPR_ALLOW_SHORT_DIGITS",
+                                    "false").lower() == "true"
+_DIGITS = "[0-9]{1,4}" if ALLOW_SHORT_DIGITS else "[0-9]{4}"
+
+# จักรยานยนต์ `กขค 123` มีเลขสามหลักในตัวอย่างของต้นฉบับเอง ("ไม่เกิน 4 หลัก")
+# รูปนี้จึงรับ 1-4 หลักเสมอ ไม่ขึ้นกับสวิตช์ข้างบน
+_PLATE_PATTERNS = (
+    ("prefixed", re.compile(
+        rf"^(?P<prefix>[0-9])(?P<letters>[ก-ฮ]{{2}})(?P<digits>{_DIGITS})$")),
+    ("two_letter", re.compile(
+        rf"^(?P<prefix>)(?P<letters>[ก-ฮ]{{2}})(?P<digits>{_DIGITS})$")),
+    ("three_letter", re.compile(
+        r"^(?P<prefix>)(?P<letters>[ก-ฮ]{3})(?P<digits>[0-9]{1,4})$")),
+    # เลขล้วน · ขีดถูกถอดไปแล้วตอน normalize ช่องว่าง จึงนับความยาวเอา
+    # 6 หลัก = `10-0001` · 7 หลัก = `700-1234` (กทม. ตั้งแต่ พ.ค. 2567)
+    ("commercial", re.compile(
+        r"^(?P<prefix>[0-9]{2,3})(?P<letters>)(?P<digits>[0-9]{4})$")),
+)
+
+# ชิ้นส่วนที่ใช้บอกว่า "ผิดรูปตรงไหน" ไม่ได้ใช้ตัดสินว่าผ่าน
+_PLATE_SHAPE_RE = re.compile(
+    r"^(?P<prefix>[0-9]*)(?P<letters>[ก-ฮ]*)(?P<digits>[0-9]*)$")
 
 
 @dataclass
@@ -258,8 +301,41 @@ def _province(value: Any) -> str:
     return _PROVINCE_ALIAS.get(v.lower(), _PROVINCE_ALIAS.get(v, ""))
 
 
-def _split_plate(raw: Any) -> Tuple[str, str, str, str]:
-    """แยกทะเบียนดิบเป็น (prefix, letters, digits, text) · แยกไม่ออก = ว่างทั้งชุด
+def _plate_problem(t: str) -> str:
+    """ผิดรูปตรงไหน · ข้อความสำหรับ `reason` ไม่ได้ใช้ตัดสินว่าผ่าน
+
+    🔴 มีไว้เพราะ "อ่านไม่ออก" เฉยๆ ตอบคำถามที่ต้องตอบไม่ได้: ต้องถ่ายใหม่
+    หรือโมเดลอ่านพลาด · อักษรตัวเดียวคู่กับเลขครบสี่ = โมเดลทำอักษรหล่นไปหนึ่งตัว
+    (เคสของ Toy 2026-09-16) ซึ่งแก้ที่ prompt · เลขสามหลัก = มุมกล้อง/ป้ายโดนบัง
+    ยุบสองอย่างนี้เป็นข้อความเดียวเมื่อไหร่ ก็ไล่ไม่ถูกว่าจะไปแก้ตรงไหน
+    """
+    m = _PLATE_SHAPE_RE.match(t)
+    if not m:
+        return "มีอักขระที่ไม่ใช่พยัญชนะไทยหรือตัวเลขปนอยู่"
+    prefix, letters, digits = m.group("prefix"), m.group("letters"), m.group("digits")
+    if not letters:
+        # เลขล้วน · รูปรถบรรทุก/รถโดยสารคือ เลข 2-3 ตัว + เลข 4 หลัก
+        return (f"เป็นตัวเลขล้วน {len(prefix) + len(digits)} หลัก"
+                " (รูปรถบรรทุก/รถโดยสารคือเลข 2-3 ตัว ขีด แล้วเลขสี่หลัก)")
+    if len(prefix) > 1:
+        return f"เลขนำหน้า {len(prefix)} ตัว (รูปที่มีเลขนำหน้า มีตัวเดียว)"
+    if len(letters) == 1:
+        return ("อ่านพยัญชนะได้ 1 ตัว"
+                " (ไม่มีรูปทะเบียนไทยแบบพยัญชนะตัวเดียว น่าจะอ่านหล่นไปหนึ่งตัว)")
+    if len(letters) > 3:
+        return f"อ่านพยัญชนะได้ {len(letters)} ตัว (มากที่สุดคือสามตัว)"
+    if prefix and len(letters) == 3:
+        return "เลขนำหน้าคู่กับพยัญชนะสามตัว ไม่ใช่รูปที่มีอยู่จริง"
+    if len(digits) != 4:
+        return (f"เลขท้าย {len(digits)} หลัก (ต้องมีสี่หลัก"
+                " · เปิด LPR_ALLOW_SHORT_DIGITS ถ้าไซต์มีทะเบียนเลขสวย)"
+                if not ALLOW_SHORT_DIGITS
+                else f"เลขท้าย {len(digits)} หลัก (มากที่สุดคือสี่หลัก)")
+    return "ไม่เข้ารูปทะเบียนไทยที่รองรับ"
+
+
+def _split_plate(raw: Any) -> Tuple[str, str, str, str, str]:
+    """แยกทะเบียนดิบเป็น (prefix, letters, digits, text, pattern) · ไม่เข้ารูป = ว่างทั้งชุด
 
     ⚠️ **ฟังก์ชันนี้ไม่ซ่อมทะเบียน** มันแยกหรือไม่แยก เท่านั้น
     เคยคิดจะเติมศูนย์นำหน้าให้ครบสี่หลัก และคิดจะแปลงอักษรละตินที่หน้าตาคล้าย
@@ -269,33 +345,47 @@ def _split_plate(raw: Any) -> Tuple[str, str, str, str]:
     สัญชาติของฝั่งงานคนไว้)
 
     ทะเบียน 1234 หลักเดียวที่หายไป กับทะเบียนที่ว่าง · อันหลังแพงกว่ามาก
+
+    🔴 ตั้งแต่ 2026-09-16 ด่านนี้รับแค่สองรูปจริง (`_PLATE_PATTERNS`)
+    ของที่เคยผ่านแล้วตอนนี้ไม่ผ่าน คือของที่ไม่เคยเป็นทะเบียนจริงตั้งแต่แรก
     """
     text = str(raw or "").strip()
     if not text:
-        return "", "", "", ""
+        return "", "", "", "", "unknown"
     # ช่องว่าง/ขีด/จุดที่โมเดลใส่มา ไม่ใช่ส่วนหนึ่งของทะเบียน
     t = text.translate(_THAI_DIGITS)
-    t = re.sub(r"[\s\-–—.]+", " ", t).strip()
-    m = _PLATE_RE.match(t.replace(" ", ""))
-    if not m:
-        return "", "", "", ""
-    prefix, letters, digits = m.group("prefix"), m.group("letters"), m.group("digits")
-    return prefix, letters, digits, f"{prefix}{letters} {digits}"
+    t = re.sub(r"[\s\-–—.]+", "", t).strip()
+    for name, rx in _PLATE_PATTERNS:
+        m = rx.match(t)
+        if m:
+            prefix, letters = m.group("prefix"), m.group("letters")
+            digits = m.group("digits")
+            # รูปรถบรรทุกเขียนด้วยขีด (`10-0001`) ไม่ใช่ช่องว่าง · เป็นรูปมาตรฐาน
+            # ของมันเอง ไม่ใช่รสนิยมการจัดหน้า เขียนผิดแล้วเทียบกับฐานทะเบียนไม่ตรง
+            sep = "-" if name == "commercial" else " "
+            return prefix, letters, digits, f"{prefix}{letters}{sep}{digits}", name
+    return "", "", "", "", "unknown"
 
 
 def plate_of(item: Dict[str, Any]) -> Tuple[Plate, str]:
     """ประกอบก้อน `plate` พร้อมเหตุผลเมื่อแยกไม่ออก"""
     raw = str(item.get("plate_text") or "").strip()[:64]
-    prefix, letters, digits, text = _split_plate(raw)
-    plate = Plate(text_raw=raw, text=text, prefix=prefix, letters=letters,
-                  digits=digits,
+    prefix, letters, digits, text, pattern = _split_plate(raw)
+    plate = Plate(text_raw=raw, text=text, pattern=pattern, prefix=prefix,
+                  letters=letters, digits=digits,
                   color=_pick(item.get("plate_color"), _PLATE_COLOR),
                   # 🔴 อ่านไม่ออก = ความมั่นใจศูนย์ ไม่ว่าโมเดลจะบอกมาเท่าไร
                   # ค่าความมั่นใจที่ลอยอยู่โดยไม่มีทะเบียนให้มั่นใจ คือตัวเลข
                   # ที่ปลายทางเอาไปคัดกรองแล้วได้ผลผิดโดยไม่รู้ตัว
-                  confidence=_conf(item.get("confidence")) if letters else 0.0)
-    if raw and not letters:
-        return plate, f"อ่านเป็นรูปทะเบียนไทยไม่ได้ (โมเดลอ่านมาว่า {raw!r})"
+                  # 🔴 วัดจาก `text` ไม่ใช่ `letters` · รูปรถบรรทุกไม่มีตัวอักษรสักตัว
+                  # แต่เป็นทะเบียนที่อ่านได้เต็มตัว (แก้ 2026-09-16 พร้อมรูปใหม่)
+                  confidence=_conf(item.get("confidence")) if text else 0.0)
+    if raw and not text:
+        # บอกด้วยว่าผิดรูปตรงไหน ไม่ใช่แค่ว่าผิด · `6ก 3869` กับ `กข 123`
+        # เป็นคนละอาการและแก้คนละที่ (prompt กับ มุมกล้อง)
+        cleaned = re.sub(r"[\s\-–—.]+", "", raw.translate(_THAI_DIGITS)).strip()
+        return plate, (f"อ่านเป็นรูปทะเบียนไทยไม่ได้: {_plate_problem(cleaned)}"
+                       f" (โมเดลอ่านมาว่า {raw!r})")
     if not raw:
         return plate, str(item.get("reason") or "อ่านทะเบียนไม่ออก").strip()[:200]
     return plate, str(item.get("reason") or "").strip()[:200]

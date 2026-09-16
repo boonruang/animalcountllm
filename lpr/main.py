@@ -45,9 +45,10 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .llm import prompt_v1
-from .llm.client import PlateLLM, normalize, vehicles_of
-from .schemas import (ImageInfo, ModelInfo, VehicleIn, VehicleOut, VehiclesOut,
-                      VehicleTruthIn)
+from .llm.client import (ALLOW_SHORT_DIGITS, PlateLLM, normalize,
+                         vehicles_of)
+from .schemas import (ImageInfo, ModelInfo, PlatePattern, VehicleIn, VehicleOut,
+                      VehiclesOut, VehicleTruthIn)
 from .store import PlateStore
 from .th import thai
 
@@ -55,7 +56,7 @@ from .th import thai
 # แยกจาก APP_VERSION (ช้าง) และ PEOPLE_VERSION (คน) โดยตั้งใจ
 # สามงาน deploy ไปด้วยกันก็จริง แต่ปลายทางคนละทีม ต้องตอบได้แยกกันว่า
 # "ของที่คุณเรียกอยู่เวอร์ชันอะไร" · tools/ship.py ตรวจทั้งสามตัว
-LPR_VERSION = "0.1.1"
+LPR_VERSION = "0.3.0"
 BUILD_NOTES = ("thai licence plate OCR via VLM · plate split in code, not asked"
                " · 77-province closed set · prompt v1")
 
@@ -117,9 +118,20 @@ BBOX_MARGIN = float(os.environ.get("LPR_BBOX_MARGIN", "0.10"))
 # (ครอปป้ายจากกล้องไกลๆ เหลือ 60x25 px ได้สบาย)
 MIN_CROP_PX = int(os.environ.get("LPR_MIN_CROP_PX", "224"))
 
-# เพดานจำนวนรถต่อภาพ · ลานจอดมีรถสามสิบคันได้ ตอบครบสามสิบ = คำตอบยาวจน
-# โดนตัดกลางแล้วเสียทั้งภาพ · หกคันแรกที่ใกล้กล้องที่สุด มีค่ากว่าสามสิบคันที่ตอบไม่จบ
-MAX_VEHICLES = int(os.environ.get("LPR_MAX_VEHICLES", "6"))
+# 🔴 หนึ่งภาพ หนึ่งคัน · Toy สั่ง 2026-09-16 ("เจตนาส่งคันเดียว")
+#
+# ปลายทางส่งภาพมาถามถึงรถคันเดียว การตอบรถที่จอดอยู่ข้างหลังมาด้วยไม่ได้ช่วยอะไร
+# แต่ทำให้ปลายทางต้องเขียนโค้ดเลือกเอง ซึ่งเป็นการเลือกที่เราทำได้ดีกว่า
+# เพราะเราเห็น `plate.pattern` และ `plate.confidence` ของทุกคันพร้อมกัน
+#
+# ยังเป็นค่า env ไม่ใช่เลข 1 ตายตัวในโค้ด เพราะวันที่ปลายทางอยากได้ทั้งลานจอด
+# (ยิงจากกล้อง fix ตัวเดียว) จะได้เปลี่ยนค่าเดียว ไม่ต้องรื้อ
+MAX_VEHICLES = int(os.environ.get("LPR_MAX_VEHICLES", "1"))
+
+# กี่คันที่เรายอม "ดู" ก่อนคัดเหลือ MAX_VEHICLES · ไม่ใช่ตัวเดียวกัน
+# โมเดลไม่ทำตามคำสั่งแล้วส่งมาห้าคัน เราต้องเลือกคันที่ชัดที่สุดจากห้าคันนั้น
+# **ไม่ใช่หยิบคันแรกที่มันพิมพ์ออกมา** ลำดับที่มันพิมพ์ไม่ใช่ลำดับความชัด
+LPR_SCAN_CAP = int(os.environ.get("LPR_SCAN_CAP", "6"))
 
 # 🔴 ปลายทางไม่ต้องรู้ว่าเราใช้โมเดลอะไร prompt เวอร์ชันไหน (กติกาเดียวกับงานคน)
 # คีย์ `model` ยังอยู่ในคำตอบเสมอแต่เป็น null · **ไม่ถอดคีย์ทิ้ง** รูป response
@@ -249,6 +261,37 @@ def _model_info(res=None) -> Optional[ModelInfo]:
                      completion_tokens=getattr(res, "completion_tokens", None))
 
 
+def _clearest(vehicles: List[VehicleOut], keep: int) -> List[VehicleOut]:
+    """คัดให้เหลือคันที่ชัดที่สุด · Toy สั่ง 2026-09-16 ("เจตนาส่งคันเดียว")
+
+    ลำดับการคัด สำคัญกว่าที่คิด:
+      1. **อ่านทะเบียนเข้ารูปได้** ก่อนเสมอ · คันที่อ่านได้แต่เบลอกว่า มีค่ากว่า
+         คันที่ชัดกว่าแต่ป้ายโดนบัง เพราะบริการนี้ตอบเรื่องทะเบียน ไม่ใช่เรื่องรถ
+      2. `plate.confidence` สูงกว่า
+      3. ลำดับที่โมเดลพิมพ์มา (เท่ากันจริงๆ ค่อยใช้)
+
+    🔴 **ไม่ใช่หยิบตัวแรกที่โมเดลพิมพ์** ลำดับที่มันพิมพ์คือลำดับที่มันนึกออก
+    ไม่ใช่ลำดับความชัด · prompt ขอคันเดียวอยู่แล้ว ตรงนี้คือด่านกันวันที่มันไม่ทำตาม
+    ซึ่งเกิดแน่ เหมือนที่ฝั่งงานคนเจอมาแล้วทุกเรื่องที่ฝากไว้กับ prompt อย่างเดียว
+    """
+    if keep <= 0 or len(vehicles) <= keep:
+        return vehicles
+    ranked = sorted(enumerate(vehicles),
+                    key=lambda t: (0 if t[1].plate.text else 1,
+                                   -t[1].plate.confidence, t[0]))
+    # เรียงกลับตามลำดับเดิมของคันที่เลือกไว้ ปลายทางอ่านง่ายกว่า
+    picked = sorted(i for i, _ in ranked[:keep])
+    return [vehicles[i] for i in picked]
+
+
+def _literal(ann) -> tuple:
+    """ค่าใน Literal · ยอด `pattern_*` ประกอบจาก schema ไม่ได้พิมพ์ชื่อซ้ำไว้ที่นี่
+    เพิ่มรูปใหม่ใน `PlatePattern` แล้วยอดจะมีถังของมันเองทันที ไม่ต้องมาแก้สองที่
+    """
+    import typing
+    return typing.get_args(ann)
+
+
 def _summary(vehicles: List[VehicleOut]) -> dict:
     """ยอดรวม · **ทุกชุดบวกได้ครบจำนวนคัน และทุกชุดมีถัง unknown**
 
@@ -259,13 +302,21 @@ def _summary(vehicles: List[VehicleOut]) -> dict:
     มันคือตัวเดียวที่บอกว่าบริการนี้ใช้ได้จริงแค่ไหนในไซต์นั้น ก่อนจะมี /truth
     ซ่อนมันเมื่อไหร่ กราฟจะสวยขึ้นทันทีโดยที่ความจริงไม่ขยับ
     """
-    n_read = sum(1 for v in vehicles if v.plate.letters)
+    # 🔴 วัดจาก `text` ไม่ใช่ `letters` · รูปรถบรรทุก (`10-0001`) ไม่มีตัวอักษรเลย
+    # แต่เป็นทะเบียนที่อ่านได้เต็มตัว · นับด้วย letters เมื่อไหร่ ยอดรถบรรทุกทั้งไซต์
+    # จะกลายเป็น "อ่านไม่ได้" ทั้งที่อ่านถูกทุกคัน (แก้ 2026-09-16)
+    n_read = sum(1 for v in vehicles if v.plate.text)
     types = {}
     for t in ("car", "pickup", "motorcycle", "truck", "van", "bus", "other",
               "unknown"):
         types[f"type_{t}"] = sum(1 for v in vehicles if v.vehicle_type == t)
     return {
         "vehicles_found": len(vehicles),
+        # 🔴 กี่คันที่เข้ารูปทะเบียนจริง · `plates_read` นับ "แยกได้" ตัวนี้นับ "เข้ารูป"
+        # สองตัวนี้เท่ากันเสมอตั้งแต่ 2026-09-16 (ด่านเดียวกันแล้ว) และจะไม่เท่ากัน
+        # ทันทีที่ใครผ่อนด่านใดด่านหนึ่ง ซึ่งเป็นวันที่ต้องมองเห็น
+        **{f"pattern_{name}": sum(1 for v in vehicles if v.plate.pattern == name)
+           for name in _literal(PlatePattern)},
         "ok": sum(1 for v in vehicles if v.status == "ok"),
         "degraded": sum(1 for v in vehicles if v.status == "degraded"),
         "plates_read": n_read,
@@ -303,6 +354,13 @@ def healthz():
             "province_set": "77 จังหวัด · ชื่อนอกชุดคืนค่าว่าง ไม่ใช่ค่าใกล้เคียง",
             "plate_split": "แยกในโค้ดจาก plate_text ไม่ได้ถามโมเดลแยกช่อง",
             "max_vehicles": MAX_VEHICLES,
+            "scan_cap": LPR_SCAN_CAP,
+            # ปลายทางต้องรู้ว่า "อ่านไม่ออก" ของบริการนี้รวมถึงอะไรบ้าง
+            "plate_patterns": "LL DDDD · D LL DDDD · LLL DDD (จยย.)"
+                              " · DD-DDDD / DDD-DDDD (รถบรรทุก/โดยสาร)"
+                              " · รูปอื่นคืนค่าว่างพร้อมเหตุผล ไม่เดาให้",
+            # ปลายทางต้องรู้ว่าเลขท้ายสั้นกว่าสี่หลักถูกรับหรือถูกตีตก
+            "allow_short_digits": ALLOW_SHORT_DIGITS,
             "bbox_margin": BBOX_MARGIN, "min_crop_px": MIN_CROP_PX,
             "save_images": SAVE_IMAGES,
             "store_path": STORE_DSN, "store_error": STORE_ERROR,
@@ -369,7 +427,7 @@ def post_vehicle(body: VehicleIn, x_api_key: Optional[str] = Header(default=None
         why = res.error or (f"โมเดลตอบไม่จบ (finish={res.finish_reason})"
                             if res.finish_reason == "length" else "โมเดลตอบไม่เป็น JSON")
     else:
-        found, err = vehicles_of(res.data, MAX_VEHICLES)
+        found, err = vehicles_of(res.data, LPR_SCAN_CAP)
         if err:
             status, why = "degraded", err
         else:
@@ -384,6 +442,14 @@ def post_vehicle(body: VehicleIn, x_api_key: Optional[str] = Header(default=None
                 vehicles.append(VehicleOut(ref=ref, status="ok",
                                            overall_confidence=conf,
                                            timing_ms=res.latency_ms, **n))
+            seen = len(vehicles)
+            vehicles = _clearest(vehicles, MAX_VEHICLES)
+            dropped = seen - len(vehicles)
+            if dropped:
+                # 🔴 คันที่ถูกคัดออกต้องมองเห็นในคำตอบ ไม่ใช่หายเงียบ
+                # ปลายทางต้องรู้ว่าในภาพมีรถคันอื่นอยู่ด้วย ไม่งั้นวันที่เราเลือกผิดคัน
+                # เขาจะไม่มีวันรู้ว่ามีให้เลือก
+                why = f"ในภาพมีรถที่เห็นป้ายอีก {dropped} คัน ตอบเฉพาะคันที่ชัดที่สุด"
 
     if status == "degraded":
         # ไม่มีรายคันให้รายงาน · เหตุผลอยู่ที่ระดับ request ไม่ใช่ซ่อนในคันที่ไม่มี
@@ -404,7 +470,8 @@ def post_vehicle(body: VehicleIn, x_api_key: Optional[str] = Header(default=None
                 "camera_id": body.camera_id, "ts": now, "status": v.status,
                 "plate_text": v.plate.text, "plate_text_raw": v.plate.text_raw,
                 "plate_prefix": v.plate.prefix, "plate_letters": v.plate.letters,
-                "plate_digits": v.plate.digits, "plate_color": v.plate.color,
+                "plate_digits": v.plate.digits, "plate_pattern": v.plate.pattern,
+                "plate_color": v.plate.color,
                 "plate_confidence": v.plate.confidence,
                 "province": v.province,
                 "province_confidence": v.province_confidence,

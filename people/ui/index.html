@@ -539,8 +539,8 @@ function person(p) {
         <span class="badge text-bg-primary">${esc(p.gender)}</span>
         <span class="badge text-bg-secondary">อายุ ${esc(p.age_range)} ปี${
           p.age_group && p.age_group !== T.unknown ? ` · ${esc(p.age_group)}` : ''}</span>
-        ${e.label && e.label !== T.noFace ? `<span class="badge text-bg-${EMOC[e.valence] ?? 'secondary'}">
-          <i class="bi bi-${EMOI[e.label] ?? 'emoji-neutral'} me-1"></i>${esc(e.label)} ${e.valence}/5</span>` : ''}
+        ${e.label_th && e.label_th !== T.noFace ? `<span class="badge text-bg-${EMOC[e.valence] ?? 'secondary'}">
+          <i class="bi bi-${EMOI[e.label_th] ?? 'emoji-neutral'} me-1"></i>${esc(e.label_th)} ${e.valence}/5</span>` : ''}
         ${u.kind && u.kind !== T.unknown && u.kind !== T.noUniform
           ? `<span class="badge text-bg-dark"><i class="bi bi-person-badge me-1"></i>${esc(u.kind)}${
               u.text ? ` &ldquo;${esc(u.text)}&rdquo;` : ''}</span>` : ''}
@@ -590,7 +590,7 @@ function person(p) {
         ${bar(p.gender_confidence, 'เพศ')}
         ${bar(p.age_range_confidence, 'ช่วงอายุ')}
         ${bar(p.appearance_confidence, 'รูปพรรณ')}
-        ${e.label && e.label !== T.noFace ? bar(e.confidence, 'อารมณ์') : ''}
+        ${e.label_th && e.label_th !== T.noFace ? bar(e.confidence, 'อารมณ์') : ''}
       </div>
       ${p.reason ? `<div class="small text-muted mt-2">หมายเหตุจากโมเดล: ${esc(p.reason)}</div>` : ''}
       <div class="small text-muted mt-2">

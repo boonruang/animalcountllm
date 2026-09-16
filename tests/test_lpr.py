@@ -49,9 +49,12 @@ TOP = {"request_id", "ref", "camera_id", "received_at", "status", "reason",
 VEHICLE = {"ref", "status", "where", "plate", "province", "province_confidence",
            "vehicle_type", "vehicle_type_confidence", "vehicle_color",
            "description", "overall_confidence", "reason", "timing_ms"}
-PLATE = {"text_raw", "text", "prefix", "letters", "digits", "color", "confidence"}
+PLATE = {"text_raw", "text", "pattern", "prefix", "letters", "digits", "color",
+         "confidence"}
 SUMMARY = {"vehicles_found", "ok", "degraded", "plates_read", "plates_unread",
            "province_known", "province_unknown",
+           "pattern_two_letter", "pattern_prefixed", "pattern_three_letter",
+           "pattern_commercial", "pattern_unknown",
            "type_car", "type_pickup", "type_motorcycle", "type_truck",
            "type_van", "type_bus", "type_other", "type_unknown"}
 
@@ -126,7 +129,12 @@ def test_model_ถูกซ่อนเป็น_null_โดยค่าเร�
 
 
 def test_ยอดรวมบวกได้ครบจำนวนคัน(monkeypatch):
-    """🔴 กฎเดียวกับทุกชุดในโครงนี้ · มี unknown เสมอและบวกได้ครบ"""
+    """🔴 กฎเดียวกับทุกชุดในโครงนี้ · มี unknown เสมอและบวกได้ครบ
+
+    ผ่อนเพดานเป็นสองคันเฉพาะเทสต์นี้ · ของจริงตอบคันเดียว (Toy สั่ง 2026-09-16)
+    แต่กฎ "ทุกชุดบวกได้ครบ" ต้องจริงที่ทุกจำนวน ไม่ใช่จริงเพราะมีคันเดียวพอดี
+    """
+    monkeypatch.setattr(lm, "MAX_VEHICLES", 2)
     payload = {"vehicles": [
         dict(ONE_CAR["vehicles"][0]),
         {"ref": "V2", "plate_text": "", "province": "", "vehicle_type": "unknown",
@@ -138,16 +146,26 @@ def test_ยอดรวมบวกได้ครบจำนวนคัน(m
     assert s["plates_read"] + s["plates_unread"] == n
     assert s["province_known"] + s["province_unknown"] == n
     assert sum(v for k, v in s.items() if k.startswith("type_")) == n
+    assert sum(v for k, v in s.items() if k.startswith("pattern_")) == n
 
 
 # ------------------------------------------------------------------ แยกทะเบียน
 @pytest.mark.parametrize("raw,want", [
-    ("1กข 1234", ("1", "กข", "1234", "1กข 1234")),
-    ("กท 5678", ("", "กท", "5678", "กท 5678")),
-    ("ขข123", ("", "ขข", "123", "ขข 123")),
-    ("2ฒฬ-9999", ("2", "ฒฬ", "9999", "2ฒฬ 9999")),
-    ("๑กก ๑๒๓๔", ("1", "กก", "1234", "1กก 1234")),   # เลขไทยบนป้ายจริงมี
-    ("  กก  11  ", ("", "กก", "11", "กก 11")),
+    # มีเลขนำหน้า · กทม. ตั้งแต่ 2555 และจังหวัดที่หมวดอักษรเต็ม
+    ("6กว 3869", ("6", "กว", "3869", "6กว 3869", "prefixed")),
+    ("1กข 1234", ("1", "กข", "1234", "1กข 1234", "prefixed")),
+    ("2ฒฬ-9999", ("2", "ฒฬ", "9999", "2ฒฬ 9999", "prefixed")),
+    ("๑กก ๑๒๓๔", ("1", "กก", "1234", "1กก 1234", "prefixed")),  # เลขไทยบนป้ายจริงมี
+    # สองอักษร · รถยนต์ส่วนบุคคลทุกจังหวัด รวม กทม. ก่อนปี 2555
+    ("กท 5678", ("", "กท", "5678", "กท 5678", "two_letter")),
+    ("  ขข  1234  ", ("", "ขข", "1234", "ขข 1234", "two_letter")),
+    # สามอักษร · จักรยานยนต์รุ่นปัจจุบัน ตัวอย่างจากต้นฉบับคือ "กขค 123"
+    ("กขค 123", ("", "กขค", "123", "กขค 123", "three_letter")),
+    ("กขค 1234", ("", "กขค", "1234", "กขค 1234", "three_letter")),
+    # รถบรรทุก/รถโดยสาร · ไม่มีตัวอักษรเลย และ **ต้องคงขีดไว้ในผลลัพธ์**
+    ("10-0001", ("10", "", "0001", "10-0001", "commercial")),
+    ("81-1234", ("81", "", "1234", "81-1234", "commercial")),
+    ("700-1234", ("700", "", "1234", "700-1234", "commercial")),
 ])
 def test_แยกทะเบียนตามรูปของป้ายไทย(raw, want):
     assert _split_plate(raw) == want
@@ -156,9 +174,15 @@ def test_แยกทะเบียนตามรูปของป้าย�
 @pytest.mark.parametrize("raw", [
     "ABC 1234",        # อักษรละติน · ห้ามเดาว่าตรงกับอักษรไทยตัวไหน
     "1234",            # ไม่มีตัวอักษร
-    "กขคง 1234",       # อักษรเกินสามตัว ไม่ใช่รูปของป้ายไทย
+    "กขคง 1234",       # อักษรสี่ตัว ไม่ใช่รูปของป้ายไทย
+    "1กขค 1234",       # เลขนำหน้าคู่กับอักษรสามตัว ไม่มีรูปนี้จริง
+    "1234567890",      # เลขล้วนยาวเกินรูปรถบรรทุก
     "กข 12345",        # เลขเกินสี่หลัก
     "กี่ 123",          # มีสระ/วรรณยุกต์ ไม่ใช่พยัญชนะล้วน
+    # 🔴 สามตัวล่างนี้คือเคสจริงจากภาพของ Toy 2026-09-16 · ด่านเดิมปล่อยผ่านหมด
+    "6ก 3869",         # พยัญชนะตัวเดียว = โมเดลทำ "ว" หล่นไป ไม่ใช่ทะเบียนหายาก
+    "6ก73869",         # อ่าน "ว" เป็น "7" · เลขไปโผล่กลางบล็อกพยัญชนะ
+    "ขข 123",          # เลขท้ายสามหลัก = อ่านมาไม่ครบ
     "",
     None,
 ])
@@ -168,7 +192,7 @@ def test_ทะเบียนที่แยกไม่ออกต้อง�
     ทะเบียนที่ถูก "ซ่อม" จนดูสมบูรณ์แบบ ชี้ไปที่รถผิดคัน และปลายทาง
     **ตรวจไม่ได้เลยแม้ถือภาพอยู่ในมือ** เหตุผลเดียวกับที่ปิดฟิลด์สัญชาติฝั่งงานคน
     """
-    assert _split_plate(raw) == ("", "", "", "")
+    assert _split_plate(raw) == ("", "", "", "", "unknown")
 
 
 def test_อ่านไม่ออกเก็บของดิบไว้_และความมั่นใจเป็นศูนย์(monkeypatch):
@@ -291,6 +315,123 @@ def test_เกินเพดานจำนวนคันถูกตัด_�
     assert d["summary"]["vehicles_found"] == lm.MAX_VEHICLES
 
 
+def test_ตอบคันเดียวเสมอ_และเป็นคันที่ป้ายชัดที่สุด(monkeypatch):
+    """🔴 Toy สั่ง 2026-09-16 · ภาพหนึ่งใบ = ถามถึงรถคันเดียว
+
+    และคันที่เลือกต้องเป็นคันที่ **ป้ายชัดที่สุด ไม่ใช่คันแรกที่โมเดลพิมพ์ออกมา**
+    ลำดับที่โมเดลพิมพ์คือลำดับที่มันนึกออก ไม่ใช่ลำดับความชัด
+    """
+    many = {"vehicles": [
+        {"ref": "V1", "plate_text": "กก 1111", "confidence": 0.3},
+        {"ref": "V2", "plate_text": "2ขข 2222", "confidence": 0.9},
+        {"ref": "V3", "plate_text": "", "confidence": 0.0, "reason": "ป้ายเบลอ"},
+    ]}
+    d = _post(monkeypatch, many)
+    assert len(d["vehicles"]) == 1
+    v = d["vehicles"][0]
+    assert v["ref"] == "V2" and v["plate"]["text"] == "2ขข 2222"
+    # คันที่ถูกคัดออกต้องมองเห็น ไม่ใช่หายเงียบ
+    assert "2 คัน" in d["reason"] and d["status"] == "ok"
+
+
+def test_คันที่อ่านป้ายได้ชนะคันที่มั่นใจกว่าแต่อ่านไม่ออก(monkeypatch):
+    """บริการนี้ตอบเรื่องทะเบียน ไม่ใช่เรื่องรถ · ความมั่นใจของป้ายที่อ่านไม่ออก
+    ถูกกดเป็น 0 อยู่แล้ว ตรงนี้คือด่านที่ยืนยันว่าลำดับการคัดไม่กลับหัว
+    """
+    payload = {"vehicles": [
+        {"ref": "V1", "plate_text": "ฟฟ 9", "confidence": 0.99},   # ผิดรูป
+        {"ref": "V2", "plate_text": "กก 4321", "confidence": 0.4},
+    ]}
+    d = _post(monkeypatch, payload)
+    assert [v["ref"] for v in d["vehicles"]] == ["V2"]
+
+
+@pytest.mark.parametrize("raw,ต้องมีในเหตุผล", [
+    ("6ก 3869", "พยัญชนะ"),      # อักษรหล่นไปหนึ่งตัว = ไปแก้ที่ prompt
+    ("ขข 123", "เลขท้าย"),        # เลขไม่ครบ = ไปแก้ที่มุมกล้อง/ระยะ
+    ("ABC 1234", "พยัญชนะไทย"),   # อักษรละติน
+])
+def test_ผิดรูปแล้วต้องบอกว่าผิดตรงไหน_ไม่ใช่แค่ว่าผิด(monkeypatch, raw, ต้องมีในเหตุผล):
+    """🔴 "อ่านไม่ออก" เฉยๆ ตอบคำถามที่ต้องตอบไม่ได้: ถ่ายใหม่ หรือแก้ prompt
+
+    อักษรตัวเดียวคู่กับเลขครบสี่ = โมเดลทำอักษรหล่น (เคสจริงของ Toy 2026-09-16)
+    เลขสามหลัก = ป้ายโดนบัง/มุมกล้อง · สองอย่างนี้แก้คนละที่
+    """
+    d = _post(monkeypatch, {"vehicles": [{"ref": "V1", "plate_text": raw,
+                                          "confidence": 0.9}]})
+    v = d["vehicles"][0]
+    assert v["plate"]["text"] == "" and v["plate"]["pattern"] == TH["plate_pattern"]["unknown"]
+    assert v["plate"]["confidence"] == 0.0
+    assert ต้องมีในเหตุผล in v["reason"]
+    assert raw in v["plate"]["text_raw"]       # ของดิบยังอยู่ เป็นหลักฐาน
+
+
+def test_prompt_เขียนรูปทะเบียนครบทุกแบบและคู่ที่สับสนข้ามชนิด():
+    """🔴 v3 · ด่านนี้เฝ้าสองอาการที่เจอจริงในวันเดียวกัน (2026-09-16)
+
+    1. ว/7 เป็นคู่สับสน **ข้ามชนิด** (พยัญชนะกับตัวเลข) ซึ่ง v1 ไม่ได้เตือนเลย
+       มันเตือนแต่คู่พยัญชนะด้วยกัน → `6กว` กลายเป็น `6ก7`
+    2. v2 สั่งว่า "พยัญชนะสองตัวเสมอ" ซึ่งเป็นคำสั่งที่ทำให้โมเดล**ดัด**ป้ายรถบรรทุก
+       (`10-0001` ไม่มีตัวอักษรเลย) ให้เข้ารูปที่เราบอก · กฎที่เขียนกันพลาด
+       กลายเป็นตัวสั่งให้พลาดเอง ซึ่งแย่กว่าอ่านไม่ออก
+    """
+    from lpr.llm import prompt_v1
+    system, user = _prompt(640, 360)
+    flat = _flat(system + user)
+    assert prompt_v1.PROMPT_VERSION == "v3"
+    assert "two thai consonants, then up to four digits" in flat
+    assert "one digit, two consonants, then up to four digits" in flat
+    assert "three thai consonants, then up to four digits" in flat
+    assert "two or three digits, a hyphen, then four digits" in flat
+    assert "ว and 7" in flat
+    # ห้ามสั่งให้เติมตัวอักษรให้ป้ายรถบรรทุก
+    assert "no thai letters at all and that is correct" in flat
+    # ขอคันเดียว ไม่ใช่ทุกคันในภาพ
+    assert "report one vehicle" in flat
+
+
+def test_ป้ายรถบรรทุกนับเป็นอ่านได้_ไม่ใช่อ่านไม่ออก(monkeypatch):
+    """🔴 รูป `10-0001` ไม่มีตัวอักษรสักตัวและถูกต้องตามป้ายจริง
+
+    ตัวชี้ว่าอ่านได้คือ `text` ไม่ใช่ `letters` · เคยใช้ `letters` เป็นตัวชี้
+    ซึ่งจะทำให้รถบรรทุกทั้งไซต์ขึ้นเป็น "อ่านไม่ได้" ทั้งที่อ่านถูกทุกคัน
+    """
+    d = _post(monkeypatch, {"vehicles": [{"ref": "V1", "plate_text": "10-0001",
+                                          "confidence": 0.8,
+                                          "vehicle_type": "truck"}]})
+    v = d["vehicles"][0]
+    assert v["plate"]["text"] == "10-0001" and v["plate"]["letters"] == ""
+    assert v["plate"]["confidence"] == 0.8
+    assert d["summary"]["plates_read"] == 1 and d["summary"]["plates_unread"] == 0
+    assert d["summary"]["pattern_commercial"] == 1
+
+
+def test_เลขท้ายสั้นถูกตีตกโดยค่าเริ่มต้น_และเปิดรับได้ด้วย_env(monkeypatch):
+    """🔴 จุดที่เอกสารกับหน้างานไม่ตรงกัน และตั้งใจเลือกข้างไว้
+
+    กรมขนส่งออก `กข 1` จริง (ต้นฉบับ: "สูงสุด 4 หลัก ตั้งแต่ 1 ถึง 9999")
+    แต่ Toy ยืนยันว่าไซต์นี้สี่ตัวเสมอ · บังคับสี่หลักไว้เพราะเป็นด่านเดียวที่จับ
+    "อ่านเลขขาด" ได้ · **เปิดสวิตช์แล้วเสียด่านนั้นไป** เทสต์นี้จึงตรึงทั้งสองฝั่ง
+    ไว้ด้วยกัน ใครเปลี่ยนค่าเริ่มต้นจะเห็นทันทีว่ากำลังแลกอะไร
+    """
+    import importlib
+
+    from lpr.llm import client as c
+    assert c.ALLOW_SHORT_DIGITS is False
+    assert c._split_plate("กข 1") == ("", "", "", "", "unknown")
+
+    monkeypatch.setenv("LPR_ALLOW_SHORT_DIGITS", "true")
+    c2 = importlib.reload(c)
+    try:
+        assert c2.ALLOW_SHORT_DIGITS is True
+        assert c2._split_plate("กข 1") == ("", "กข", "1", "กข 1", "two_letter")
+        # ราคาของการเปิด: เลขที่อ่านขาดกลายเป็นทะเบียนที่ถูกต้องทันที
+        assert c2._split_plate("6กว 3")[4] == "prefixed"
+    finally:
+        monkeypatch.delenv("LPR_ALLOW_SHORT_DIGITS")
+        importlib.reload(c)
+
+
 # ------------------------------------------------------------------ bbox
 def test_ส่ง_bbox_มาแล้วเราครอปเอง_และบอกกรอบที่ใช้จริง(monkeypatch):
     """กรอบที่คืนไป **ไม่ใช่ค่าเดียวกับที่ส่งมา** เพราะเผื่อขอบแล้วหนีบขอบภาพแล้ว
@@ -394,8 +535,9 @@ def test_ทุกค่าใน_schema_ต้องมีคำแปลไท
     import typing
 
     from lpr import th
-    from lpr.schemas import PlateColor, VehicleType
-    for path, ann in (("vehicle_type", VehicleType), ("plate_color", PlateColor)):
+    from lpr.schemas import PlateColor, PlatePattern, VehicleType
+    for path, ann in (("vehicle_type", VehicleType), ("plate_color", PlateColor),
+                      ("plate_pattern", PlatePattern)):
         want = set(typing.get_args(ann))
         table = th.FIELD[path]
         missing = want - set(table)

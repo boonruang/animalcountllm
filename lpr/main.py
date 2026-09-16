@@ -56,7 +56,7 @@ from .th import thai
 # แยกจาก APP_VERSION (ช้าง) และ PEOPLE_VERSION (คน) โดยตั้งใจ
 # สามงาน deploy ไปด้วยกันก็จริง แต่ปลายทางคนละทีม ต้องตอบได้แยกกันว่า
 # "ของที่คุณเรียกอยู่เวอร์ชันอะไร" · tools/ship.py ตรวจทั้งสามตัว
-LPR_VERSION = "0.4.0"
+LPR_VERSION = "0.5.0"
 BUILD_NOTES = ("thai licence plate OCR via VLM · plate split in code, not asked"
                " · 77-province closed set · prompt v1")
 

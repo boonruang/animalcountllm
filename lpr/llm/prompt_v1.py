@@ -1,4 +1,4 @@
-"""prompt v4 — อ่านป้ายทะเบียนไทยจากภาพหนึ่งใบ (ชื่อไฟล์คงเดิม เลขอยู่ที่ PROMPT_VERSION)
+"""prompt v5 — อ่านป้ายทะเบียนไทยจากภาพหนึ่งใบ (ชื่อไฟล์คงเดิม เลขอยู่ที่ PROMPT_VERSION)
 
 v2 (2026-09-16) เกิดจากภาพจริงของ Toy ที่ระบบคืน `6ก73869` ออกมา ซึ่งผิดสองชั้น:
 โมเดลอ่าน "ว" เป็น "7" (สับสนพยัญชนะกับตัวเลข ไม่ใช่สับสนพยัญชนะด้วยกัน ซึ่งเป็น
@@ -43,7 +43,7 @@ from __future__ import annotations
 
 from ..schemas import PROVINCES
 
-PROMPT_VERSION = "v4"
+PROMPT_VERSION = "v5"
 """🔴 เลขนี้ถูกเก็บลง DB ทุกแถว · ขยับทุกครั้งที่ prompt เปลี่ยน
 ไม่งั้นเวลาไล่ย้อนหลังว่า "ทำไมเดือนนี้อ่านแม่นกว่าเดือนที่แล้ว" จะแยกไม่ออก
 ว่าเพราะ prompt หรือเพราะภาพ
@@ -62,10 +62,13 @@ tell, and where it sits in the image.
 How to be useful here:
 - Thai plates come in these shapes. Read which one is in front of you; do not force
   what you see into a different one:
-    (a) two Thai consonants, then up to four digits       -> "กท 5678"   cars
-    (b) one digit, two consonants, then up to four digits -> "6กว 3869"  cars, Bangkok
-    (c) three Thai consonants, then up to four digits     -> "กขค 123"   motorcycles
-    (d) two or three digits, a hyphen, then four digits   -> "10-0001"   lorries, buses
+    (a) two Thai consonants, then up to four digits       -> "ฟฟ 0000"   cars
+    (b) one digit, two consonants, then up to four digits -> "0ฟฟ 0000"  cars, Bangkok
+    (c) three Thai consonants, then up to four digits     -> "ฟฟฟ 0000"  motorcycles
+    (d) two or three digits, a hyphen, then four digits   -> "00-0000"   lorries, buses
+  Every example here is written with zeros on purpose. Thai plate numbers start at 1, so
+  a number of all zeros is not a plate that exists anywhere: these are shapes to match,
+  never characters to copy.
   Shape (d) has NO Thai letters at all and that is correct for it: a lorry plate is
   digits, hyphen, digits. Never add letters to it. Shapes (a), (b) and (c) always carry
   a Thai province name on their own line below the characters.
@@ -74,6 +77,10 @@ How to be useful here:
   Copy `plate_text` exactly as you see it, in Thai script, as one line: for (a), (b) and
   (c) the letters and the digits with a single space between them; for (d) keep the
   hyphen, no spaces. Do not put the province in `plate_text`.
+- Some plates, especially auctioned "lucky number" ones, print the digits in Thai
+  numerals (๑๒๓๔) instead of Arabic ones, and some print the whole plate on a decorative
+  background. Read the Thai numerals as the digits they are and copy them; the shape of
+  the plate is the same. An unfamiliar background does not make a plate unreadable.
 - Read the characters. Do not reconstruct a plate that would make sense. If one
   character is blurred, hidden by a bracket, cut off by the edge of the frame or lost in
   glare, leave that plate unread: answer "" for `plate_text` and say which part defeated
@@ -111,6 +118,8 @@ How to be useful here:
   Thai roads are full of modified cars: body kits, changed bumpers, aftermarket lights,
   added spoilers. When the panels have been changed, the shape stops being evidence
   about the model, and the honest answer is the make alone, or "".
+  A close crop of a plate with a sliver of bumper around it is NOT a view of the car:
+  make, model and generation are all "" there, and `vehicle_type` is "unknown".
   Never work the make out from the plate. The plate does not know what car it is bolted
   to, and a plate that suggests a car to you is a plate you have started guessing from.
 - `plate_color` is the background colour of the plate itself, not the colour of the
@@ -142,23 +151,27 @@ Answer about the one vehicle whose plate reads clearest (at most {cap} row). Rep
 exactly this shape:
 {{"vehicles":[{{
  "ref":"V1",
- "where":"กลางภาพ หันหน้าเข้ากล้อง",
- "plate_text":"6กว 3869",
+ "where":"<ตรงไหนในภาพ>",
+ "plate_text":"ฟฟ 0000",
  "confidence":0.8,
- "province":"กรุงเทพมหานคร",
+ "province":"",
  "province_confidence":0.6,
  "plate_color":"white",
  "vehicle_type":"pickup",
  "vehicle_type_confidence":0.9,
  "vehicle_color":"white",
- "vehicle_make":"Toyota",
- "vehicle_make_confidence":0.8,
- "vehicle_model":"Celica",
- "vehicle_model_confidence":0.5,
- "vehicle_generation":"ST182 (1989-1993)",
- "vehicle_generation_confidence":0.2,
- "description":"รถกระบะสีขาว ทะเบียน 6กว 3869 กรุงเทพมหานคร จอดหน้าประตู",
+ "vehicle_make":"",
+ "vehicle_make_confidence":0.0,
+ "vehicle_model":"",
+ "vehicle_model_confidence":0.0,
+ "vehicle_generation":"",
+ "vehicle_generation_confidence":0.0,
+ "description":"<หนึ่งบรรทัดภาษาไทย บอกสิ่งที่เห็นจริงในภาพนี้>",
  "reason":""}}]}}
+
+🔴 The values inside that shape are placeholders for the FORMAT of each field, not
+content. Answer from the image in front of you. If you cannot read the plate in this
+image, the answer is "", never the example text, and never a plate you have seen before.
 
 `ref` labels the vehicle in this answer only: V1. It means nothing outside this answer,
 so never try to recognise a vehicle or reuse a number from another image.
@@ -168,6 +181,10 @@ give pixel coordinates, they are not what you are good at.
 
 If there is no plate anywhere in the image, reply {{"vehicles":[]}}. That is a real
 answer, not a failure.
+
+But a picture that is nothing but a plate, filling most of the frame with no car around
+it, IS one row: report the plate and answer "unknown" for `vehicle_type`. An empty list
+there would say "no plate in this image", which is the opposite of what you are seeing.
 
 {allowed}
 

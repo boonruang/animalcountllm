@@ -186,7 +186,6 @@ def test_แยกทะเบียนตามรูปของป้าย�
     # 🔴 สามตัวล่างนี้คือเคสจริงจากภาพของ Toy 2026-09-16 · ด่านเดิมปล่อยผ่านหมด
     "6ก 3869",         # พยัญชนะตัวเดียว = โมเดลทำ "ว" หล่นไป ไม่ใช่ทะเบียนหายาก
     "6ก73869",         # อ่าน "ว" เป็น "7" · เลขไปโผล่กลางบล็อกพยัญชนะ
-    "ขข 123",          # เลขท้ายสามหลัก = อ่านมาไม่ครบ
     "",
     None,
 ])
@@ -343,7 +342,7 @@ def test_คันที่อ่านป้ายได้ชนะคัน�
     ถูกกดเป็น 0 อยู่แล้ว ตรงนี้คือด่านที่ยืนยันว่าลำดับการคัดไม่กลับหัว
     """
     payload = {"vehicles": [
-        {"ref": "V1", "plate_text": "ฟฟ 9", "confidence": 0.99},   # ผิดรูป
+        {"ref": "V1", "plate_text": "ฟ 9999", "confidence": 0.99},  # พยัญชนะตัวเดียว = ผิดรูป
         {"ref": "V2", "plate_text": "กก 4321", "confidence": 0.4},
     ]}
     d = _post(monkeypatch, payload)
@@ -351,9 +350,9 @@ def test_คันที่อ่านป้ายได้ชนะคัน�
 
 
 @pytest.mark.parametrize("raw,ต้องมีในเหตุผล", [
-    ("6ก 3869", "พยัญชนะ"),      # อักษรหล่นไปหนึ่งตัว = ไปแก้ที่ prompt
-    ("ขข 123", "เลขท้าย"),        # เลขไม่ครบ = ไปแก้ที่มุมกล้อง/ระยะ
-    ("ABC 1234", "พยัญชนะไทย"),   # อักษรละติน
+    ("6ก 3869", "พยัญชนะ"),        # อักษรหล่นไปหนึ่งตัว = ไปแก้ที่ prompt
+    ("ฟฟ 0000", "ศูนย์ล้วน"),      # ลอกตัวอย่างจากคำสั่งมาตอบ
+    ("ABC 1234", "พยัญชนะไทย"),    # อักษรละติน
 ])
 def test_ผิดรูปแล้วต้องบอกว่าผิดตรงไหน_ไม่ใช่แค่ว่าผิด(monkeypatch, raw, ต้องมีในเหตุผล):
     """🔴 "อ่านไม่ออก" เฉยๆ ตอบคำถามที่ต้องตอบไม่ได้: ถ่ายใหม่ หรือแก้ prompt
@@ -382,8 +381,10 @@ def test_prompt_เขียนรูปทะเบียนครบทุก�
     from lpr.llm import prompt_v1
     system, user = _prompt(640, 360)
     flat = _flat(system + user)
-    assert prompt_v1.PROMPT_VERSION == "v4"
+    assert prompt_v1.PROMPT_VERSION == "v5"
     assert "two thai consonants, then up to four digits" in flat
+    # ตัวอย่างต้องเป็นศูนย์ล้วน ซึ่งเป็นทะเบียนที่มีอยู่จริงไม่ได้
+    assert "never characters to copy" in flat
     assert "one digit, two consonants, then up to four digits" in flat
     assert "three thai consonants, then up to four digits" in flat
     assert "two or three digits, a hyphen, then four digits" in flat
@@ -410,30 +411,77 @@ def test_ป้ายรถบรรทุกนับเป็นอ่าน�
     assert d["summary"]["pattern_commercial"] == 1
 
 
-def test_เลขท้ายสั้นถูกตีตกโดยค่าเริ่มต้น_และเปิดรับได้ด้วย_env(monkeypatch):
-    """🔴 จุดที่เอกสารกับหน้างานไม่ตรงกัน และตั้งใจเลือกข้างไว้
+def test_เลขท้ายสั้นรับโดยค่าเริ่มต้น_และปิดกลับได้ด้วย_env(monkeypatch):
+    """🔴 ค่าเริ่มต้นกลับด้าน 2026-09-16 · หลักฐานหน้างานชนะกฎที่จำต่อกันมา
 
-    กรมขนส่งออก `กข 1` จริง (ต้นฉบับ: "สูงสุด 4 หลัก ตั้งแต่ 1 ถึง 9999")
-    แต่ Toy ยืนยันว่าไซต์นี้สี่ตัวเสมอ · บังคับสี่หลักไว้เพราะเป็นด่านเดียวที่จับ
-    "อ่านเลขขาด" ได้ · **เปิดสวิตช์แล้วเสียด่านนั้นไป** เทสต์นี้จึงตรึงทั้งสองฝั่ง
-    ไว้ด้วยกัน ใครเปลี่ยนค่าเริ่มต้นจะเห็นทันทีว่ากำลังแลกอะไร
+    Toy ส่งป้ายจริงมาห้าใบ สองใบเป็นเลขสวย (`๗กข ๑๓๕` · `ถม ๖๗`) ซึ่งด่านสี่หลัก
+    ตีตกทั้งคู่ · ต้นฉบับกรมขนส่งก็บอกว่าเลขทะเบียนคือ 1 ถึง 9999 อยู่แล้ว
+
+    ⚠️ ราคาที่จ่าย: เลขที่โมเดลอ่านขาดไปหนึ่งตัวจะผ่านออกไปเป็นทะเบียนที่ถูกรูป
+    เทสต์นี้ตรึงสองฝั่งไว้ด้วยกัน ใครกลับค่าเริ่มต้นจะเห็นทันทีว่ากำลังแลกอะไร
     """
     import importlib
 
     from lpr.llm import client as c
-    assert c.ALLOW_SHORT_DIGITS is False
-    assert c._split_plate("กข 1") == ("", "", "", "", "unknown")
+    assert c.ALLOW_SHORT_DIGITS is True
+    assert c._split_plate("ถม 67") == ("", "ถม", "67", "ถม 67", "two_letter")
+    assert c._split_plate("7กข 135") == ("7", "กข", "135", "7กข 135", "prefixed")
+    # ราคาของมัน: อ่านเลขขาดก็ผ่าน
+    assert c._split_plate("6กว 386")[4] == "prefixed"
 
-    monkeypatch.setenv("LPR_ALLOW_SHORT_DIGITS", "true")
+    monkeypatch.setenv("LPR_ALLOW_SHORT_DIGITS", "false")
     c2 = importlib.reload(c)
     try:
-        assert c2.ALLOW_SHORT_DIGITS is True
-        assert c2._split_plate("กข 1") == ("", "กข", "1", "กข 1", "two_letter")
-        # ราคาของการเปิด: เลขที่อ่านขาดกลายเป็นทะเบียนที่ถูกต้องทันที
-        assert c2._split_plate("6กว 3")[4] == "prefixed"
+        assert c2.ALLOW_SHORT_DIGITS is False
+        assert c2._split_plate("ถม 67") == ("", "", "", "", "unknown")
+        assert c2._split_plate("6กว 3869")[4] == "prefixed"
     finally:
         monkeypatch.delenv("LPR_ALLOW_SHORT_DIGITS")
         importlib.reload(c)
+
+
+def test_ทะเบียนศูนย์ล้วนคือตัวอย่างในคำสั่ง_ไม่ใช่ป้ายในภาพ(monkeypatch):
+    """🔴🔴 บั๊กจริง 2026-09-16 · **ตัวอย่างใน prompt กลายเป็นคำตอบ**
+
+    prompt v2-v4 ใช้ทะเบียนจริงของรถทดสอบ (`6กว 3869`) เป็นตัวอย่าง วันที่โมเดล
+    อ่านภาพไม่ออก (ป้ายพิมพ์เลขไทย) **มันลอกตัวอย่างมาตอบพร้อมความมั่นใจ 0.9**
+    และคำตอบนั้นเข้ารูปครบทุกด่าน · วัดจริง: ภาพ `๑กข๑๒๓๔` กับ `๗กข๑๓๕`
+    ได้ `6กว 3869` กลับมาทั้งคู่ ซึ่งเป็นทะเบียนของรถคนละคันในคำสั่งของเราเอง
+
+    v5 เปลี่ยนตัวอย่างเป็นเลขศูนย์ล้วนที่กรมขนส่งไม่เคยออก **และด่านนี้คือครึ่งหลัง**
+    ลอกมาเมื่อไหร่จับได้ 100% · แก้แต่ prompt = ฝากไว้กับคำสั่ง ซึ่งพังมาแล้ววันนี้
+    """
+    from lpr.llm.client import _split_plate
+    for said in ("ฟฟ 0000", "0ฟฟ 0000", "ฟฟฟ 0000", "00-0000"):
+        assert _split_plate(said) == ("", "", "", "", "unknown"), said
+
+    # ศูนย์นำหน้ายังใช้ได้ · รูปรถบรรทุกเริ่มที่ 0001 จริงตามต้นฉบับ
+    assert _split_plate("10-0001")[4] == "commercial"
+
+    d = _post(monkeypatch, {"vehicles": [{"ref": "V1", "plate_text": "ฟฟ 0000",
+                                          "confidence": 0.9}]})
+    v = d["vehicles"][0]
+    assert v["plate"]["text"] == "" and v["plate"]["confidence"] == 0.0
+    assert "ศูนย์ล้วน" in v["reason"]
+
+
+def test_prompt_ห้ามมีทะเบียนจริงหรือจังหวัดจริงเป็นตัวอย่าง():
+    """🔴 ด่านที่เฝ้าบั๊กข้างบนจากอีกฝั่ง · ตัวอย่างทุกตัวต้องเป็นศูนย์ล้วน
+
+    ใครเผลอเอาทะเบียนสวยๆ ของรถจริงมาใส่เป็นตัวอย่างอีกครั้ง จะตกตรงนี้
+    ก่อนที่มันจะไปโผล่เป็นคำตอบของภาพที่โมเดลอ่านไม่ออก
+    """
+    import re
+
+    from lpr.llm import prompt_v1
+    system, user = _prompt(640, 360)
+    text = system + user
+    # ทะเบียนทุกตัวที่ปรากฏใน prompt ต้องลงท้ายด้วยเลขศูนย์ล้วน
+    for m in re.finditer(r"[0-9]?[ก-ฮ]{2,3}[\s-]?([0-9]{2,4})", text):
+        assert set(m.group(1)) == {"0"}, f"prompt มีทะเบียนที่ดูเหมือนของจริง: {m.group(0)!r}"
+    # และห้ามมีชื่อจังหวัดจริงเป็นค่าตัวอย่างของ province
+    assert '"province":""' in re.sub(r"\s+", "", user)
+    assert prompt_v1.PROMPT_VERSION == "v5"
 
 
 # ------------------------------------------------------------------ bbox

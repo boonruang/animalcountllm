@@ -132,6 +132,10 @@ $('#go').onclick = async () => {
   }
 };
 
+// ความเชื่อมั่นของยี่ห้อ/รุ่น โชว์เป็นตัวเลขเสมอ **ไม่ซ่อนตอนต่ำ**
+// ช่องพวกนี้เดามากกว่าช่องอื่นทั้งก้อน คนที่นั่งตรวจต้องเห็นว่ามันมั่นใจแค่ไหน
+const pct = c => `(${Math.round((c ?? 0) * 100)}%)`;
+
 function vehicle(v) {
   const p = v.plate || {};
   // 🔴 ป้ายที่อ่านไม่ออก แสดงเป็นกรอบประ + ข้อความดิบที่โมเดลอ่านมา
@@ -157,6 +161,12 @@ function vehicle(v) {
       ${v.reason ? `<div class="alert alert-warning py-2 small mb-2">${esc(v.reason)}</div>` : ''}
       <table class="table table-sm attr mb-0"><tbody>
         <tr><th>รูปทะเบียน</th><td>${esc(p.pattern || '-')}</td></tr>
+        <tr><th>ยี่ห้อ / รุ่น / รุ่นย่อย</th>
+            <td>${v.vehicle_make
+                  ? `${esc(v.vehicle_make)} <span class="text-muted">${pct(v.vehicle_make_confidence)}</span>`
+                  : '<span class="text-muted">ดูไม่ออก</span>'}
+                ${v.vehicle_model ? ` · ${esc(v.vehicle_model)} <span class="text-muted">${pct(v.vehicle_model_confidence)}</span>` : ''}
+                ${v.vehicle_generation ? ` · ${esc(v.vehicle_generation)} <span class="text-muted">${pct(v.vehicle_generation_confidence)}</span>` : ''}</td></tr>
         <tr><th>เลขนำหน้า / ตัวอักษร / ตัวเลข</th>
             <td>${esc(p.prefix || '-')} / ${esc(p.letters || '-')} / ${esc(p.digits || '-')}</td></tr>
         <tr><th>จังหวัด</th><td>${esc(v.province || 'อ่านไม่ได้')}

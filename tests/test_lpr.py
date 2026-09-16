@@ -48,6 +48,10 @@ TOP = {"request_id", "ref", "camera_id", "received_at", "status", "reason",
        "vehicles", "summary", "image", "model", "timing_ms"}
 VEHICLE = {"ref", "status", "where", "plate", "province", "province_confidence",
            "vehicle_type", "vehicle_type_confidence", "vehicle_color",
+           # ยี่ห้อ/รุ่น/รุ่นย่อย · Toy สั่ง 2026-09-16 · ความเชื่อมั่นคนละตัวต่อชั้น
+           "vehicle_make", "vehicle_make_confidence",
+           "vehicle_model", "vehicle_model_confidence",
+           "vehicle_generation", "vehicle_generation_confidence",
            "description", "overall_confidence", "reason", "timing_ms"}
 PLATE = {"text_raw", "text", "pattern", "prefix", "letters", "digits", "color",
          "confidence"}
@@ -378,7 +382,7 @@ def test_prompt_เขียนรูปทะเบียนครบทุก�
     from lpr.llm import prompt_v1
     system, user = _prompt(640, 360)
     flat = _flat(system + user)
-    assert prompt_v1.PROMPT_VERSION == "v3"
+    assert prompt_v1.PROMPT_VERSION == "v4"
     assert "two thai consonants, then up to four digits" in flat
     assert "one digit, two consonants, then up to four digits" in flat
     assert "three thai consonants, then up to four digits" in flat
@@ -580,18 +584,72 @@ def test_ชุดค่าในโค้ดกับใน_prompt_ต้อง
         assert want == in_code, f"{name} ใน normalize ไม่ตรงกับ schema: {want ^ in_code}"
 
 
-def test_prompt_ไม่ขอ_bbox_และไม่ขอยี่ห้อรถ():
+def test_prompt_ไม่ขอ_bbox():
     """🔴 วัดมาแล้วฝั่งช้าง โมเดลคืน y=998 บนภาพสูง 628 · ตำแหน่งขอเป็นข้อความเท่านั้น
 
-    ส่วนยี่ห้อ/รุ่นรถคือการเดามากกว่าการอ่าน และไม่มีใครสั่งให้ทำ
+    ⚠️ เดิมเทสต์นี้กันเรื่องยี่ห้อ/รุ่นด้วย · Toy สั่งให้ถามแล้ว 2026-09-16
+    เหตุผลเดิม (มันเดา ไม่ได้อ่าน) ไม่ได้หายไป ย้ายไปอยู่ที่
+    `test_ยี่ห้อรุ่นต้องว่างเมื่อมองไม่เห็นตัวรถ` ซึ่งบังคับในโค้ด ไม่ใช่ในคำสั่ง
     """
     # 🔴 เทียบแบบยุบช่องว่าง · ประโยคใน prompt ขึ้นบรรทัดใหม่กลางประโยคได้เสมอ
     # เทสต์ที่เทียบสตริงดิบจะตกวันที่มีคนจัดย่อหน้าใหม่ ทั้งที่กฎยังอยู่ครบ
     system, user = _prompt(640, 360)
-    for banned in ("bbox", "brand", "make and model"):
-        assert banned not in _flat(system)
+    assert "bbox" not in _flat(system)
     assert "where it sits in the image" in _flat(system)
     assert "do not give pixel coordinates" in _flat(user)
+
+
+def test_ยี่ห้อรุ่นต้องว่างเมื่อมองไม่เห็นตัวรถ_และรุ่นต้องมียี่ห้อ(monkeypatch):
+    """🔴 Toy สั่งเพิ่มยี่ห้อ/รุ่น 2026-09-16 · บังคับในโค้ด ไม่ฝากไว้กับ prompt
+
+    ส่งครอปป้ายมาแล้วได้ยี่ห้อกลับไป = มันเดาจากทะเบียน ซึ่งทะเบียนบอกไม่ได้เลย
+    ส่วนรุ่นที่ลอยอยู่โดยไม่รู้ยี่ห้อ คือสัญญาณว่ามันเดาทั้งพวง
+    """
+    # มองไม่เห็นตัวรถ (ครอปป้าย) แต่โมเดลตอบยี่ห้อมา -> ต้องถูกล้างทั้งสามช่อง
+    d = _post(monkeypatch, {"vehicles": [{
+        "ref": "V1", "plate_text": "6กว 3869", "confidence": 0.9,
+        "vehicle_type": "unknown", "vehicle_make": "Toyota",
+        "vehicle_make_confidence": 0.9, "vehicle_model": "Celica",
+        "vehicle_model_confidence": 0.8, "vehicle_generation": "ST182",
+        "vehicle_generation_confidence": 0.7}]})
+    v = d["vehicles"][0]
+    assert v["vehicle_make"] == "" and v["vehicle_model"] == ""
+    assert v["vehicle_generation"] == ""
+    assert v["vehicle_make_confidence"] == 0.0
+    assert v["vehicle_generation_confidence"] == 0.0
+    # ทะเบียนยังอ่านได้ตามปกติ · ด่านนี้ไม่แตะงานหลัก
+    assert v["plate"]["text"] == "6กว 3869"
+
+    # เห็นตัวรถ · รุ่นที่ไม่มียี่ห้อต้องถูกทิ้ง ส่วนยี่ห้อล้วนเป็นคำตอบที่ปกติ
+    d = _post(monkeypatch, {"vehicles": [{
+        "ref": "V1", "plate_text": "6กว 3869", "confidence": 0.9,
+        "vehicle_type": "car", "vehicle_make": "", "vehicle_model": "Celica",
+        "vehicle_model_confidence": 0.8}]})
+    v = d["vehicles"][0]
+    assert v["vehicle_model"] == "" and v["vehicle_model_confidence"] == 0.0
+
+    # คำว่า "ไม่รู้" ไม่ใช่ยี่ห้อ · ช่องอิสระไม่มี _pick คอยกันให้
+    for said in ("unknown", "N/A", "ไม่ทราบ", "-"):
+        d = _post(monkeypatch, {"vehicles": [{
+            "ref": "V1", "plate_text": "6กว 3869", "confidence": 0.9,
+            "vehicle_type": "car", "vehicle_make": said,
+            "vehicle_make_confidence": 0.9}]})
+        assert d["vehicles"][0]["vehicle_make"] == "", said
+
+    # เห็นตัวรถ + ยี่ห้อจริง -> เก็บครบทั้งสามชั้น พร้อมความเชื่อมั่นคนละตัว
+    d = _post(monkeypatch, {"vehicles": [{
+        "ref": "V1", "plate_text": "6กว 3869", "confidence": 0.9,
+        "vehicle_type": "car", "vehicle_make": "Toyota",
+        "vehicle_make_confidence": 0.85, "vehicle_model": "Celica",
+        "vehicle_model_confidence": 0.5, "vehicle_generation": "ST182",
+        "vehicle_generation_confidence": 0.2}]})
+    v = d["vehicles"][0]
+    assert (v["vehicle_make"], v["vehicle_model"], v["vehicle_generation"])         == ("Toyota", "Celica", "ST182")
+    assert v["vehicle_make_confidence"] == 0.85
+    assert v["vehicle_model_confidence"] == 0.5
+    assert v["vehicle_generation_confidence"] == 0.2
+    # 🔴 ยี่ห้อ/รุ่นเป็นชื่อเฉพาะ **ห้ามถูกแปลเป็นไทย** ตอนขาออก
+    assert "Toyota" in d["vehicles"][0]["vehicle_make"]
 
 
 def test_prompt_สั่งให้ตอบว่าอ่านไม่ออก_ไม่ใช่เดาให้ครบ():

@@ -1,4 +1,4 @@
-"""prompt v3 — อ่านป้ายทะเบียนไทยจากภาพหนึ่งใบ (ชื่อไฟล์คงเดิม เลขอยู่ที่ PROMPT_VERSION)
+"""prompt v4 — อ่านป้ายทะเบียนไทยจากภาพหนึ่งใบ (ชื่อไฟล์คงเดิม เลขอยู่ที่ PROMPT_VERSION)
 
 v2 (2026-09-16) เกิดจากภาพจริงของ Toy ที่ระบบคืน `6ก73869` ออกมา ซึ่งผิดสองชั้น:
 โมเดลอ่าน "ว" เป็น "7" (สับสนพยัญชนะกับตัวเลข ไม่ใช่สับสนพยัญชนะด้วยกัน ซึ่งเป็น
@@ -20,7 +20,12 @@ v2 สั่งโมเดลว่า "พยัญชนะสองตัว
    0 จุดร้อน" แล้วโมเดลเชื่อ ตอบว่าไม่มีสัตว์ ทั้งที่ช้างเต็มเฟรม (วัดจริง 2026-08-17)
    ที่นี่จึงไม่บอกว่า "ในภาพมีรถหนึ่งคัน" แม้ปลายทางจะส่ง bbox มาก็ตาม
 2. **ขอเฉพาะสิ่งที่โมเดลทำได้จริง** ไม่ขอพิกัด bbox (คืน y=998 บนภาพสูง 628 มาแล้ว)
-   ตำแหน่งขอเป็นข้อความ · ไม่ขอยี่ห้อ/รุ่นรถ ซึ่งเป็นการเดามากกว่าการอ่าน
+   ตำแหน่งขอเป็นข้อความ
+   ⚠️ v4 (2026-09-16) **ถามยี่ห้อ/รุ่นแล้ว ตามที่ Toy สั่ง** ซึ่งกลับข้อนี้ครึ่งหนึ่ง
+   เหตุผลเดิมยังจริง (มันเดา ไม่ได้อ่าน) เลยไม่ได้แค่เติมคำถามเข้าไปเฉยๆ:
+   ถามแยกสามชั้น (ยี่ห้อ/รุ่น/รุ่นย่อย) พร้อมความเชื่อมั่นคนละตัว เพราะสามชั้นนี้
+   เดาไม่เท่ากัน · และมีด่านในโค้ด (`client._make_model`) บังคับว่ามองไม่เห็นตัวรถ
+   = ว่างทั้งสามช่อง ไม่ฝากไว้กับคำสั่งอย่างเดียว
 3. **สิ่งที่แยกเองได้ ห้ามถามโมเดล** ถามแค่ `plate_text` ทั้งพวง แล้วเราแยก
    เลขนำหน้า/ตัวอักษร/ตัวเลข เองในโค้ด · ถามแยกเป็นช่องๆ แล้ววันหนึ่งจะได้
    letters ที่ขัดกับ text ในคำตอบเดียวกัน แล้วปลายทางไม่รู้จะเชื่อช่องไหน
@@ -38,7 +43,7 @@ from __future__ import annotations
 
 from ..schemas import PROVINCES
 
-PROMPT_VERSION = "v3"
+PROMPT_VERSION = "v4"
 """🔴 เลขนี้ถูกเก็บลง DB ทุกแถว · ขยับทุกครั้งที่ prompt เปลี่ยน
 ไม่งั้นเวลาไล่ย้อนหลังว่า "ทำไมเดือนนี้อ่านแม่นกว่าเดือนที่แล้ว" จะแยกไม่ออก
 ว่าเพราะ prompt หรือเพราะภาพ
@@ -51,7 +56,8 @@ SYSTEM = """You read Thai vehicle licence plates from one still image.
 
 Report, for the one vehicle whose plate you can read most clearly: the plate as it
 reads, the province name printed on it, the background colour of the plate, what kind of
-vehicle it is if the vehicle body is visible, its colour, and where it sits in the image.
+vehicle it is if the vehicle body is visible, its colour, its make and model if you can
+tell, and where it sits in the image.
 
 How to be useful here:
 - Thai plates come in these shapes. Read which one is in front of you; do not force
@@ -92,6 +98,21 @@ How to be useful here:
   not tell you whether it is bolted to a sedan or a pickup.
 - `vehicle_color` is the colour of the bodywork, and "" when you cannot see the body.
   The plate colour is a separate field: do not let one answer the other.
+- `vehicle_make`, `vehicle_model` and `vehicle_generation` are three steps down a
+  ladder, and each one is a bigger guess than the one above it:
+    make       the badge on the grille or boot: "Toyota", "Isuzu", "Honda"
+    model      the model name the shape tells you: "Celica", "D-Max", "Civic"
+    generation the sub-model or year range the details tell you: "ST182", "1989-1993"
+  Answer as far down that ladder as the picture actually takes you and stop there.
+  Make with no model is a normal, useful answer. Model with no make is not an answer at
+  all. All three are "" when the body is not visible, and "" is correct, not a failure.
+  Give each one its own confidence, and let them differ: 0.9 on the badge you can read
+  and 0.3 on the year range you inferred is exactly the right shape of answer.
+  Thai roads are full of modified cars: body kits, changed bumpers, aftermarket lights,
+  added spoilers. When the panels have been changed, the shape stops being evidence
+  about the model, and the honest answer is the make alone, or "".
+  Never work the make out from the plate. The plate does not know what car it is bolted
+  to, and a plate that suggests a car to you is a plate you have started guessing from.
 - `plate_color` is the background colour of the plate itself, not the colour of the
   characters. Report what you see. Do not tell us what kind of registration it implies.
 - `confidence` from 0 to 1 on the characters you read, honestly. A sharp plate filling
@@ -130,6 +151,12 @@ exactly this shape:
  "vehicle_type":"pickup",
  "vehicle_type_confidence":0.9,
  "vehicle_color":"white",
+ "vehicle_make":"Toyota",
+ "vehicle_make_confidence":0.8,
+ "vehicle_model":"Celica",
+ "vehicle_model_confidence":0.5,
+ "vehicle_generation":"ST182 (1989-1993)",
+ "vehicle_generation_confidence":0.2,
  "description":"รถกระบะสีขาว ทะเบียน 6กว 3869 กรุงเทพมหานคร จอดหน้าประตู",
  "reason":""}}]}}
 
@@ -169,6 +196,9 @@ plate_text: one of "LL DDDD", "D LL DDDD", "LLL DDD" (Thai consonants and digits
   (digits and a hyphen, no letters, no spaces); "" if unread
 province: the full Thai province name printed on the plate, "" if you cannot read it
 vehicle_color: one Thai colour word, "" when the body is not visible
+vehicle_make / vehicle_model / vehicle_generation: plain text in the Latin alphabet as
+  the brand writes it, "" when you cannot tell; model requires a make; generation
+  requires a make
 confidence / province_confidence / vehicle_type_confidence: a number from 0 to 1"""
 
 

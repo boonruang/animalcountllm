@@ -51,9 +51,14 @@ FIELD["plate.pattern"] = FIELD["plate_pattern"]
 
 # 🔴 คีย์ที่ห้ามแปลเด็ดขาด แม้ชื่อจะไปพ้องกับตารางข้างบน
 # `text` `text_raw` `letters` `digits` `prefix` คือหลักฐานจากป้ายจริง
+# 🔴 `vehicle_make` `vehicle_model` `vehicle_generation` เป็น **ชื่อเฉพาะ**
+# "Toyota" ไม่มีคำแปลไทยที่ปลายทางใช้ได้ และ "Celica" ยิ่งไม่มี · ต่างจาก
+# `vehicle_color` ที่เป็นคำบรรยาย จึงเป็นไทย · อยู่ใน NEVER ตั้งแต่วันแรกเพื่อกัน
+# วันที่มีคนเผลอเติมตารางแปลให้มัน (2026-09-16)
 NEVER = frozenset({"status", "source", "ref", "request_id", "camera_id",
                    "client_request_id", "text", "text_raw", "letters", "digits",
                    "prefix", "province", "plate_text", "plate_text_raw",
+                   "vehicle_make", "vehicle_model", "vehicle_generation",
                    "prompt_version", "model_name", "provider", "finish_reason",
                    "image_source"})
 

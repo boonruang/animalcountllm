@@ -56,7 +56,7 @@ from .th import thai
 # แยกจาก APP_VERSION (ช้าง) และ PEOPLE_VERSION (คน) โดยตั้งใจ
 # สามงาน deploy ไปด้วยกันก็จริง แต่ปลายทางคนละทีม ต้องตอบได้แยกกันว่า
 # "ของที่คุณเรียกอยู่เวอร์ชันอะไร" · tools/ship.py ตรวจทั้งสามตัว
-LPR_VERSION = "0.3.0"
+LPR_VERSION = "0.4.0"
 BUILD_NOTES = ("thai licence plate OCR via VLM · plate split in code, not asked"
                " · 77-province closed set · prompt v1")
 
@@ -478,6 +478,12 @@ def post_vehicle(body: VehicleIn, x_api_key: Optional[str] = Header(default=None
                 "vehicle_type": v.vehicle_type,
                 "vehicle_type_confidence": v.vehicle_type_confidence,
                 "vehicle_color": v.vehicle_color,
+                "vehicle_make": v.vehicle_make,
+                "vehicle_make_confidence": v.vehicle_make_confidence,
+                "vehicle_model": v.vehicle_model,
+                "vehicle_model_confidence": v.vehicle_model_confidence,
+                "vehicle_generation": v.vehicle_generation,
+                "vehicle_generation_confidence": v.vehicle_generation_confidence,
                 "description": v.description,
                 "overall_confidence": v.overall_confidence,
                 "reason": v.reason, "where_text": v.where,

@@ -47,6 +47,9 @@ CREATE TABLE IF NOT EXISTS vehicles (
   province          TEXT, province_confidence REAL,
   vehicle_type      TEXT, vehicle_type_confidence REAL,
   vehicle_color     TEXT,
+  vehicle_make      TEXT, vehicle_make_confidence REAL,        -- v0.4.0
+  vehicle_model     TEXT, vehicle_model_confidence REAL,
+  vehicle_generation TEXT, vehicle_generation_confidence REAL,
   description       TEXT,
   overall_confidence REAL,
   reason            TEXT,
@@ -106,7 +109,13 @@ class PlateStore:
         แถวเก่าจะเป็น NULL ซึ่งถูกต้อง: ตอนนั้นยังไม่มีการวัดรูปทะเบียน
         เติมค่าย้อนหลังให้ = แกล้งทำเป็นว่ารู้สิ่งที่ตอนนั้นไม่ได้วัด
         """
-        for table, cols in (("vehicles", (("plate_pattern", "TEXT"),)),
+        for table, cols in (("vehicles", (("plate_pattern", "TEXT"),
+                                          ("vehicle_make", "TEXT"),
+                                          ("vehicle_make_confidence", "REAL"),
+                                          ("vehicle_model", "TEXT"),
+                                          ("vehicle_model_confidence", "REAL"),
+                                          ("vehicle_generation", "TEXT"),
+                                          ("vehicle_generation_confidence", "REAL"))),
                             ("lpr_requests", ())):
             if not cols:
                 continue
@@ -146,6 +155,9 @@ class PlateStore:
                 "plate_digits", "plate_pattern", "plate_color", "plate_confidence",
                 "province", "province_confidence",
                 "vehicle_type", "vehicle_type_confidence", "vehicle_color",
+                "vehicle_make", "vehicle_make_confidence",
+                "vehicle_model", "vehicle_model_confidence",
+                "vehicle_generation", "vehicle_generation_confidence",
                 "description", "overall_confidence", "reason", "where_text",
                 "image_w", "image_h", "image_source", "llm_raw_response",
                 "prompt_version", "model_name", "provider", "finish_reason",

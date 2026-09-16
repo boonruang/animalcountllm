@@ -391,6 +391,21 @@ def plate_of(item: Dict[str, Any]) -> Tuple[Plate, str]:
     return plate, str(item.get("reason") or "").strip()[:200]
 
 
+def _free_text(raw: Any, cap: int) -> str:
+    """ข้อความอิสระที่ยังต้องกันคำว่า "ไม่รู้" ไม่ให้กลายเป็นคำตอบ
+
+    🔴 ช่องชุดค่าปิดมี `_pick` กันอยู่ · ช่องข้อความอิสระ (ยี่ห้อ รุ่น) ไม่มีอะไรกันเลย
+    โมเดลตอบ "unknown" "N/A" "ไม่ทราบ" มาเมื่อไหร่ มันจะไปนั่งอยู่ในช่อง
+    `vehicle_make` แล้วปลายทางกรอง "รถ Toyota" ได้ผลปนกับรถที่ดูไม่ออก
+    ค่าว่างคือ "ไม่รู้" ของช่องพวกนี้ · คำว่า "ไม่รู้" ไม่ใช่
+    """
+    v = str(raw or "").strip()[:cap]
+    if v.lower() in {"unknown", "n/a", "na", "none", "null", "-", "ไม่ทราบ",
+                     "ไม่รู้", "ดูไม่ออก", "ไม่ระบุ"}:
+        return ""
+    return v
+
+
 def normalize(item: Dict[str, Any]) -> Dict[str, Any]:
     """คำตอบดิบของโมเดลหนึ่งคัน -> ค่าที่ schema ยอมรับ
 
@@ -411,6 +426,36 @@ def normalize(item: Dict[str, Any]) -> Dict[str, Any]:
         "vehicle_type_confidence": (_conf(item.get("vehicle_type_confidence"))
                                     if v_type != "unknown" else 0.0),
         "vehicle_color": str(item.get("vehicle_color") or "").strip()[:32],
+        **_make_model(item, v_type),
         "description": str(item.get("description") or "").strip()[:300],
         "reason": reason,
+    }
+
+
+def _make_model(item: Dict[str, Any], v_type: str) -> Dict[str, Any]:
+    """ยี่ห้อ/รุ่น/รุ่นย่อย · Toy สั่งเพิ่ม 2026-09-16
+
+    🔴 กฎที่บังคับตรงนี้ ไม่ได้ฝากไว้กับ prompt อย่างเดียว:
+
+    1. **มองไม่เห็นตัวรถ = ทั้งสามช่องว่าง** ส่งครอปป้ายมาแล้วได้ยี่ห้อกลับไป
+       แปลว่ามันเดาจากทะเบียน ซึ่งเป็นสิ่งที่ทะเบียนบอกไม่ได้เลย
+    2. **ไม่มียี่ห้อ = ไม่มีรุ่น และไม่มีรุ่นย่อย** รุ่นที่ลอยอยู่โดยไม่รู้ว่ายี่ห้ออะไร
+       คือคำตอบที่เอาไปใช้ต่อไม่ได้ และมักเป็นสัญญาณว่ามันเดาทั้งพวง
+       (หลักเดียวกับที่กด confidence เป็น 0 เมื่อไม่มีทะเบียน)
+    3. ช่องว่าง = ความเชื่อมั่นศูนย์เสมอ ทุกช่อง
+    """
+    seen = v_type != "unknown"
+    make = _free_text(item.get("vehicle_make"), 32) if seen else ""
+    model = _free_text(item.get("vehicle_model"), 32) if make else ""
+    gen = _free_text(item.get("vehicle_generation"), 48) if make else ""
+    return {
+        "vehicle_make": make,
+        "vehicle_make_confidence": (_conf(item.get("vehicle_make_confidence"))
+                                    if make else 0.0),
+        "vehicle_model": model,
+        "vehicle_model_confidence": (_conf(item.get("vehicle_model_confidence"))
+                                     if model else 0.0),
+        "vehicle_generation": gen,
+        "vehicle_generation_confidence": (
+            _conf(item.get("vehicle_generation_confidence")) if gen else 0.0),
     }

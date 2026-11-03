@@ -28,7 +28,7 @@ from .cv import thermal  # noqa: E402
 from .filters import temporal  # noqa: E402
 from .llm.client import VisionLLM  # noqa: E402
 from .llm import prompt_v2 as prompt  # noqa: E402
-from .llm import prompt_v3  # noqa: E402
+from .llm import prompt_v4  # noqa: E402
 from .schemas import (Detection, FrameIn, FrameOut, FilteredResult, ModelInfo,  # noqa: E402
                       RawResult, SpeciesTally, TruthIn, WindowInfo)
 from .store.base import DetectionRecord, FrameRecord, make_store  # noqa: E402
@@ -55,11 +55,11 @@ from .store.base import DetectionRecord, FrameRecord, make_store  # noqa: E402
 # 🔴 รูปของ JSON ที่ตอบกลับ **ห้ามเปลี่ยน** confirm กับทีมคุณสุชาติไปแล้ว
 # ฟิลด์เท่าเดิมทุกตัว ชื่อเดิม ชนิดเดิม · โหมดนี้ทำให้บางฟิลด์เป็นค่าว่างได้
 # (detections = [] · regions_detected = 0) แต่ฟิลด์ยังอยู่ครบและชนิดยังถูก
-# ปลายทางแยกออกว่าจำนวนมาจากไหนด้วย model.prompt_version (v3 = โมเดลนับเอง)
+# ปลายทางแยกออกว่าจำนวนมาจากไหนด้วย model.prompt_version (v3 ขึ้นไป = โมเดลนับเอง)
 PIPELINE = os.environ.get("PIPELINE", "llm").lower()
 
-APP_VERSION = "0.6.2"
-BUILD_NOTES = ("llm-first pipeline (prompt v3, no CV gate), thermal + colour"
+APP_VERSION = "0.6.3"
+BUILD_NOTES = ("llm-first pipeline (prompt v4, no CV gate), elephants only on low-res thermal"
                " · + smart people counting mounted at /people"
                " · + thai licence plate reader mounted at /lpr")
 
@@ -173,7 +173,7 @@ def healthz():
             "version": APP_VERSION, "build": BUILD_NOTES,
             "provider": llm.provider, "model": llm.model,
             "pipeline": PIPELINE,
-            "prompt_version": (prompt_v3.PROMPT_VERSION if PIPELINE == "llm"
+            "prompt_version": (prompt_v4.PROMPT_VERSION if PIPELINE == "llm"
                                else prompt.PROMPT_VERSION),
             "store": os.environ.get("STORE_BACKEND", "sqlite"),
             "store_path": STORE_DSN, "store_error": STORE_ERROR,
@@ -233,7 +233,7 @@ def post_frame(body: FrameIn, x_api_key: str | None = Header(default=None)):
     animals: List[SpeciesTally] = []
     status = "ok"
     model_info = ModelInfo(provider=llm.provider, name=llm.model,
-                           prompt_version=(prompt_v3.PROMPT_VERSION if PIPELINE == "llm"
+                           prompt_version=(prompt_v4.PROMPT_VERSION if PIPELINE == "llm"
                                            else prompt.PROMPT_VERSION))
     vlm_ms = 0.0
 
@@ -244,7 +244,7 @@ def post_frame(body: FrameIn, x_api_key: str | None = Header(default=None)):
         res = llm.look(body.image_base64, frame_w, frame_h, body.camera_id, image_hash)
         vlm_ms = res.latency_ms
         rec.llm_raw_response = res.raw or (res.error or "")
-        rec.prompt_version = prompt_v3.PROMPT_VERSION
+        rec.prompt_version = prompt_v4.PROMPT_VERSION
         rec.model_name, rec.provider = llm.model, llm.provider
         rec.finish_reason, rec.completion_tokens = res.finish_reason, res.completion_tokens
         model_info.finish_reason = res.finish_reason

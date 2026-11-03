@@ -16,7 +16,7 @@ from typing import List, Optional, Tuple
 
 from ..schemas import Blob, LLMVerdict, SpeciesTally
 from . import prompt_v2 as prompt
-from . import prompt_v3
+from . import prompt_v4
 
 VALID = {"elephant", "cattle", "human", "other_animal", "unknown"}
 
@@ -92,14 +92,17 @@ class VisionLLM:
     # ---------------------------------------------------------------- call
     def look(self, image_b64: str, w: int, h: int, camera_id: str = "unknown",
              image_hash: str = "") -> LLMResult:
-        """เส้น v3 · ถามโมเดลตรงๆ ไม่มีชั้น CV มาบอกใบ้ก่อน
+        """เส้น llm · ถามโมเดลตรงๆ ไม่มีชั้น CV มาบอกใบ้ก่อน
 
         ตัดสินโดย Toy 2026-08-17: API เส้นนี้คือ LLM ไม่ใช่ CV
-        เหตุผลเต็มและตัวเลขที่วัดได้อยู่ใน prompt_v3.py
+        Toy 2026-11-03: นับช้างอย่างเดียว ไม่สนใจคน (ดู prompt_v4.py)
         """
-        system, user = prompt_v3.build(w, h, camera_id)
-        return self._invoke(system, user, image_b64, image_hash,
-                            prompt_v3.PROMPT_VERSION, blobs=0, frame=f"{w}x{h}")
+        system, user = prompt_v4.build(w, h, camera_id)
+        res = self._invoke(system, user, image_b64, image_hash,
+                           prompt_v4.PROMPT_VERSION, blobs=0, frame=f"{w}x{h}")
+        if res.verdict:
+            res.verdict.animals = elephant_only(res.verdict.animals)
+        return res
 
     def classify(self, image_b64: str, blobs: List[Blob], w: int, h: int,
                  image_hash: str = "") -> LLMResult:
@@ -157,6 +160,22 @@ class VisionLLM:
             return LLMResult(None, "", None, None,
                              round((time.perf_counter() - t0) * 1000, 1),
                              f"{type(e).__name__}: {e}")
+
+
+def elephant_only(animals: List[SpeciesTally]) -> List[SpeciesTally]:
+    """ด่านในโค้ดตามที่ Toy สั่ง 2026-11-03 เผื่อโมเดลไม่ทำตาม prompt
+
+    คนถูกตัดทิ้ง · สัตว์ชนิดอื่นนับเป็นช้าง · unknown คงไว้
+    คำตอบดิบก่อนผ่านด่านยังอยู่ใน llm_raw_response
+    """
+    out = []
+    for a in animals:
+        if a.species == "human":
+            continue
+        if a.species in ("cattle", "other_animal"):
+            a = a.model_copy(update={"species": "elephant"})
+        out.append(a)
+    return out
 
 
 def mime_of(image_b64: str) -> str:

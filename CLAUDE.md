@@ -119,6 +119,9 @@ app ฝั่งกล้อง → POST /v1/frames  {camera_id, ts, image_base6
 }
 ```
 
+`ref` (Toy สั่ง 2026-11-03) = `note` ที่ส่งมา คืนตัวเดิมเป๊ะ · **ไม่ส่ง `note` = ไม่มีช่องนี้เลย** รูปเดิมจึงไม่ขยับ
+แต่ปลายทางที่ส่ง `note` อยู่แล้วและ validate เข้มจะเห็นฟิลด์เพิ่ม · ไม่ลง DB ไม่มี `by-ref` ฝั่งช้าง
+
 `status` = `ok` · `provisional` (conf ต่ำ รอเฟรมถัดไป) · `degraded` (LLM ล่ม เหลือแต่ผล CV) · `error`
 `state` = `stable` · `rising` · `falling` · `unstable` (เฟรมเห็นไม่ตรงกัน) · `unconfirmed`
 

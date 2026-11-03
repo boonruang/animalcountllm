@@ -156,6 +156,10 @@ class ModelInfo(BaseModel):
 
 class FrameOut(BaseModel):
     request_id: str
+    ref: Optional[str] = None
+    """`note` ที่ปลายทางส่งมา คืนตัวเดิมเป๊ะ · ไม่ส่ง `note` = ไม่มีช่องนี้ใน JSON เลย
+    (post_frame เป็นคนตัดออก) รูปเดิมที่ confirm กับทีมคุณสุชาติจึงไม่ขยับ"""
+
     camera_id: str
     received_at: str
     status: Status

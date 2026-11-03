@@ -58,7 +58,7 @@ from .store.base import DetectionRecord, FrameRecord, make_store  # noqa: E402
 # ปลายทางแยกออกว่าจำนวนมาจากไหนด้วย model.prompt_version (v3 = โมเดลนับเอง)
 PIPELINE = os.environ.get("PIPELINE", "llm").lower()
 
-APP_VERSION = "0.6.1"
+APP_VERSION = "0.6.2"
 BUILD_NOTES = ("llm-first pipeline (prompt v3, no CV gate), thermal + colour"
                " · + smart people counting mounted at /people"
                " · + thai licence plate reader mounted at /lpr")
@@ -342,9 +342,9 @@ def post_frame(body: FrameIn, x_api_key: str | None = Header(default=None)):
                         top.confidence if top else 0.0,
                         d.detection_confidence, d.bbox) for d in detections])
 
-    return FrameOut(
-        request_id=request_id, camera_id=body.camera_id, received_at=_iso(now),
-        status=status,
+    out = FrameOut(
+        request_id=request_id, ref=body.note, camera_id=body.camera_id,
+        received_at=_iso(now), status=status,
         raw=RawResult(animals=animals, counts=counts,
                       regions_detected=len(cv.blobs) if cv else 0,
                       detections=detections, overall_confidence=overall),
@@ -352,6 +352,11 @@ def post_frame(body: FrameIn, x_api_key: str | None = Header(default=None)):
         timing_ms={"cv": cv.elapsed_ms if cv else 0.0, "vlm": vlm_ms,
                    "total": round((time.perf_counter() - t_start) * 1000, 1)},
     )
+    # ไม่ส่ง note = ไม่มีช่อง ref เลย ไม่ใช่ ref: null เพื่อให้รูปเดิมไม่ขยับ
+    # 🔴 ห้ามใช้ response_model_exclude_none แทน ตัวนั้นตัด model.finish_reason
+    # กับ completion_tokens ที่เป็น null ออกด้วย ซึ่งเป็นฟิลด์ในสัญญา
+    return JSONResponse(out.model_dump(mode="json",
+                                       exclude={"ref"} if body.note is None else None))
 
 
 @app.get("/v1/frames/{request_id}")

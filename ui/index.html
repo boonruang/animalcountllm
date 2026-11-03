@@ -138,7 +138,11 @@
           <div class="form-text mb-3">จำเป็นต้องใส่ ขอคีย์จาก admin</div>
 
           <label for="cam" class="form-label">Camera ID</label>
-          <input id="cam" type="text" class="form-control" value="dummycam-01">
+          <input id="cam" type="text" class="form-control mb-3" value="dummycam-01">
+
+          <label for="note" class="form-label">Note</label>
+          <input id="note" type="text" class="form-control" autocomplete="off">
+          <div class="form-text">ไม่บังคับ · ส่งกลับมาในช่อง ref</div>
         </div>
       </div>
 
@@ -258,7 +262,9 @@ go.onclick = async () => {
     const res = await fetch('/v1/frames', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
-      body: JSON.stringify({ camera_id: cam, image_base64: b64 })
+      // ช่องว่าง = ไม่ส่ง note · ไม่ trim เพราะ ref ต้องตรงกับที่พิมพ์เป๊ะ
+      body: JSON.stringify({ camera_id: cam, image_base64: b64,
+                             ...($('#note').value ? { note: $('#note').value } : {}) })
     });
     const j = await res.json();
     if (res.status === 401) {
@@ -368,6 +374,7 @@ function render(j) {
             <span class="text-muted">(${esc(j.model.prompt_version)}${
               j.model.finish_reason ? ' · จบแบบ ' + esc(j.model.finish_reason) : ''})</span></td></tr>
         <tr><th>Request ID</th><td class="font-monospace small">${esc(j.request_id)}</td></tr>
+        ${'ref' in j ? `<tr><th>Ref</th><td class="font-monospace small">${esc(j.ref)}</td></tr>` : ''}
       </tbody>
     </table>
 

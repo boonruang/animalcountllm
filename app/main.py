@@ -58,8 +58,14 @@ from .store.base import DetectionRecord, FrameRecord, make_store  # noqa: E402
 # ปลายทางแยกออกว่าจำนวนมาจากไหนด้วย model.prompt_version (v3 ขึ้นไป = โมเดลนับเอง)
 PIPELINE = os.environ.get("PIPELINE", "llm").lower()
 
-APP_VERSION = "0.6.3"
+# ขยายภาพเล็กก่อนส่งเข้าโมเดล · ค่า 960 วัดจากเฟรม 640x480 ที่ช้างกินพื้นที่ราว 0.8%
+# ภาพเดิมเจอ 0/3 · ด้านสั้น 960 เจอ 3/3 · ตั้ง ELEPHANT_MIN_IMAGE_PX=0 เพื่อปิด
+MIN_IMAGE_PX = int(os.environ.get("ELEPHANT_MIN_IMAGE_PX", "960"))
+MAX_IMAGE_PX = int(os.environ.get("ELEPHANT_MAX_IMAGE_PX", "2000"))
+
+APP_VERSION = "0.6.4"
 BUILD_NOTES = ("llm-first pipeline (prompt v4, no CV gate), elephants only on low-res thermal"
+               " · small frames upscaled before the model"
                " · + smart people counting mounted at /people"
                " · + thai licence plate reader mounted at /lpr")
 
@@ -140,6 +146,30 @@ def image_size(raw: bytes) -> tuple[int, int]:
     from PIL import Image
     with Image.open(io.BytesIO(raw)) as im:
         return im.size
+
+
+def upscale_for_model(raw: bytes) -> tuple[str, int, int] | None:
+    """ขยายภาพให้ด้านสั้นถึง `MIN_IMAGE_PX` · คืน None เมื่อไม่ต้องขยาย
+
+    ขยายทั้งภาพ ไม่ครอป ไม่แต่งสี เพราะไม่รู้ว่าช้างอยู่ตรงไหน
+    ขนาดใน response และ DB ยังเป็นขนาดที่ปลายทางส่งมา
+    """
+    from PIL import Image
+
+    if MIN_IMAGE_PX <= 0:
+        return None
+    with Image.open(io.BytesIO(raw)) as im:
+        w, h = im.size
+        if min(w, h) >= MIN_IMAGE_PX:
+            return None
+        scale = min(MIN_IMAGE_PX / min(w, h), MAX_IMAGE_PX / max(w, h))
+        if scale <= 1.0:
+            return None
+        big = im.convert("RGB").resize(
+            (max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
+    buf = io.BytesIO()
+    big.save(buf, format="JPEG", quality=95)
+    return base64.b64encode(buf.getvalue()).decode(), big.width, big.height
 
 
 def _auth(key: str | None) -> None:
@@ -241,7 +271,13 @@ def post_frame(body: FrameIn, x_api_key: str | None = Header(default=None)):
         # ---- เส้น llm · ถามโมเดลทุกเฟรม ไม่มีอะไรมาคัดก่อน
         # ไม่มี "ไม่ยิงเพราะไม่เจอก้อน" อีกแล้ว เพราะการไม่เจอก้อนคือสิ่งที่ทำให้
         # ช้างเต็มเฟรมกลายเป็น {"animals":[]} มาทั้งวัน (ดู prompt_v3.py)
-        res = llm.look(body.image_base64, frame_w, frame_h, body.camera_id, image_hash)
+        # ขยายไม่สำเร็จต้องไม่ทำให้เฟรมเสีย ส่งภาพเดิมไปแทน
+        try:
+            sized = upscale_for_model(raw_bytes)
+        except Exception:
+            sized = None
+        look_b64, look_w, look_h = sized or (body.image_base64, frame_w, frame_h)
+        res = llm.look(look_b64, look_w, look_h, body.camera_id, image_hash)
         vlm_ms = res.latency_ms
         rec.llm_raw_response = res.raw or (res.error or "")
         rec.prompt_version = prompt_v4.PROMPT_VERSION

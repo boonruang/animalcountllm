@@ -28,7 +28,7 @@ from .cv import thermal  # noqa: E402
 from .filters import temporal  # noqa: E402
 from .llm.client import VisionLLM  # noqa: E402
 from .llm import prompt_v2 as prompt  # noqa: E402
-from .llm import prompt_v3  # noqa: E402
+from .llm import prompt_v4  # noqa: E402
 from .schemas import (Detection, FrameIn, FrameOut, FilteredResult, ModelInfo,  # noqa: E402
                       RawResult, SpeciesTally, TruthIn, WindowInfo)
 from .store.base import DetectionRecord, FrameRecord, make_store  # noqa: E402
@@ -55,11 +55,17 @@ from .store.base import DetectionRecord, FrameRecord, make_store  # noqa: E402
 # 🔴 รูปของ JSON ที่ตอบกลับ **ห้ามเปลี่ยน** confirm กับทีมคุณสุชาติไปแล้ว
 # ฟิลด์เท่าเดิมทุกตัว ชื่อเดิม ชนิดเดิม · โหมดนี้ทำให้บางฟิลด์เป็นค่าว่างได้
 # (detections = [] · regions_detected = 0) แต่ฟิลด์ยังอยู่ครบและชนิดยังถูก
-# ปลายทางแยกออกว่าจำนวนมาจากไหนด้วย model.prompt_version (v3 = โมเดลนับเอง)
+# ปลายทางแยกออกว่าจำนวนมาจากไหนด้วย model.prompt_version (v3 ขึ้นไป = โมเดลนับเอง)
 PIPELINE = os.environ.get("PIPELINE", "llm").lower()
 
-APP_VERSION = "0.6.1"
-BUILD_NOTES = ("llm-first pipeline (prompt v3, no CV gate), thermal + colour"
+# ขยายภาพเล็กก่อนส่งเข้าโมเดล · ค่า 960 วัดจากเฟรม 640x480 ที่ช้างกินพื้นที่ราว 0.8%
+# ภาพเดิมเจอ 0/3 · ด้านสั้น 960 เจอ 3/3 · ตั้ง ELEPHANT_MIN_IMAGE_PX=0 เพื่อปิด
+MIN_IMAGE_PX = int(os.environ.get("ELEPHANT_MIN_IMAGE_PX", "960"))
+MAX_IMAGE_PX = int(os.environ.get("ELEPHANT_MAX_IMAGE_PX", "2000"))
+
+APP_VERSION = "0.6.4"
+BUILD_NOTES = ("llm-first pipeline (prompt v4, no CV gate), elephants only on low-res thermal"
+               " · small frames upscaled before the model"
                " · + smart people counting mounted at /people"
                " · + thai licence plate reader mounted at /lpr")
 
@@ -142,6 +148,30 @@ def image_size(raw: bytes) -> tuple[int, int]:
         return im.size
 
 
+def upscale_for_model(raw: bytes) -> tuple[str, int, int] | None:
+    """ขยายภาพให้ด้านสั้นถึง `MIN_IMAGE_PX` · คืน None เมื่อไม่ต้องขยาย
+
+    ขยายทั้งภาพ ไม่ครอป ไม่แต่งสี เพราะไม่รู้ว่าช้างอยู่ตรงไหน
+    ขนาดใน response และ DB ยังเป็นขนาดที่ปลายทางส่งมา
+    """
+    from PIL import Image
+
+    if MIN_IMAGE_PX <= 0:
+        return None
+    with Image.open(io.BytesIO(raw)) as im:
+        w, h = im.size
+        if min(w, h) >= MIN_IMAGE_PX:
+            return None
+        scale = min(MIN_IMAGE_PX / min(w, h), MAX_IMAGE_PX / max(w, h))
+        if scale <= 1.0:
+            return None
+        big = im.convert("RGB").resize(
+            (max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
+    buf = io.BytesIO()
+    big.save(buf, format="JPEG", quality=95)
+    return base64.b64encode(buf.getvalue()).decode(), big.width, big.height
+
+
 def _auth(key: str | None) -> None:
     if API_KEY and key != API_KEY:
         raise HTTPException(status_code=401, detail="bad or missing X-API-Key")
@@ -173,7 +203,7 @@ def healthz():
             "version": APP_VERSION, "build": BUILD_NOTES,
             "provider": llm.provider, "model": llm.model,
             "pipeline": PIPELINE,
-            "prompt_version": (prompt_v3.PROMPT_VERSION if PIPELINE == "llm"
+            "prompt_version": (prompt_v4.PROMPT_VERSION if PIPELINE == "llm"
                                else prompt.PROMPT_VERSION),
             "store": os.environ.get("STORE_BACKEND", "sqlite"),
             "store_path": STORE_DSN, "store_error": STORE_ERROR,
@@ -233,7 +263,7 @@ def post_frame(body: FrameIn, x_api_key: str | None = Header(default=None)):
     animals: List[SpeciesTally] = []
     status = "ok"
     model_info = ModelInfo(provider=llm.provider, name=llm.model,
-                           prompt_version=(prompt_v3.PROMPT_VERSION if PIPELINE == "llm"
+                           prompt_version=(prompt_v4.PROMPT_VERSION if PIPELINE == "llm"
                                            else prompt.PROMPT_VERSION))
     vlm_ms = 0.0
 
@@ -241,10 +271,16 @@ def post_frame(body: FrameIn, x_api_key: str | None = Header(default=None)):
         # ---- เส้น llm · ถามโมเดลทุกเฟรม ไม่มีอะไรมาคัดก่อน
         # ไม่มี "ไม่ยิงเพราะไม่เจอก้อน" อีกแล้ว เพราะการไม่เจอก้อนคือสิ่งที่ทำให้
         # ช้างเต็มเฟรมกลายเป็น {"animals":[]} มาทั้งวัน (ดู prompt_v3.py)
-        res = llm.look(body.image_base64, frame_w, frame_h, body.camera_id, image_hash)
+        # ขยายไม่สำเร็จต้องไม่ทำให้เฟรมเสีย ส่งภาพเดิมไปแทน
+        try:
+            sized = upscale_for_model(raw_bytes)
+        except Exception:
+            sized = None
+        look_b64, look_w, look_h = sized or (body.image_base64, frame_w, frame_h)
+        res = llm.look(look_b64, look_w, look_h, body.camera_id, image_hash)
         vlm_ms = res.latency_ms
         rec.llm_raw_response = res.raw or (res.error or "")
-        rec.prompt_version = prompt_v3.PROMPT_VERSION
+        rec.prompt_version = prompt_v4.PROMPT_VERSION
         rec.model_name, rec.provider = llm.model, llm.provider
         rec.finish_reason, rec.completion_tokens = res.finish_reason, res.completion_tokens
         model_info.finish_reason = res.finish_reason
@@ -342,9 +378,9 @@ def post_frame(body: FrameIn, x_api_key: str | None = Header(default=None)):
                         top.confidence if top else 0.0,
                         d.detection_confidence, d.bbox) for d in detections])
 
-    return FrameOut(
-        request_id=request_id, camera_id=body.camera_id, received_at=_iso(now),
-        status=status,
+    out = FrameOut(
+        request_id=request_id, ref=body.note, camera_id=body.camera_id,
+        received_at=_iso(now), status=status,
         raw=RawResult(animals=animals, counts=counts,
                       regions_detected=len(cv.blobs) if cv else 0,
                       detections=detections, overall_confidence=overall),
@@ -352,6 +388,11 @@ def post_frame(body: FrameIn, x_api_key: str | None = Header(default=None)):
         timing_ms={"cv": cv.elapsed_ms if cv else 0.0, "vlm": vlm_ms,
                    "total": round((time.perf_counter() - t_start) * 1000, 1)},
     )
+    # ไม่ส่ง note = ไม่มีช่อง ref เลย ไม่ใช่ ref: null เพื่อให้รูปเดิมไม่ขยับ
+    # 🔴 ห้ามใช้ response_model_exclude_none แทน ตัวนั้นตัด model.finish_reason
+    # กับ completion_tokens ที่เป็น null ออกด้วย ซึ่งเป็นฟิลด์ในสัญญา
+    return JSONResponse(out.model_dump(mode="json",
+                                       exclude={"ref"} if body.note is None else None))
 
 
 @app.get("/v1/frames/{request_id}")

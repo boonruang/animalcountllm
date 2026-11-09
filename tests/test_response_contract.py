@@ -36,14 +36,29 @@ MODEL = {"provider", "name", "prompt_version", "finish_reason", "completion_toke
 TIMING = {"cv", "vlm", "total"}
 
 
-def _post():
+def _post(**extra):
     b64 = base64.b64encode(
         pathlib.Path("docs/samples/three-animals.png").read_bytes()).decode()
     client = TestClient(m.app)
     r = client.post("/v1/frames",
-                    json={"camera_id": "cam-contract", "image_base64": b64})
+                    json={"camera_id": "cam-contract", "image_base64": b64, **extra})
     assert r.status_code == 200, r.text
     return r.json()
+
+
+def test_ส่ง_note_ได้_ref_ตัวเดิมเป๊ะ_และเพิ่มแค่ช่องเดียว():
+    """เพิ่ม 2026-11-03 ตามที่ Toy สั่ง · ช่องว่างกับภาษาไทยต้องไม่ถูกแตะ
+    เพราะปลายทางเอาไปเทียบว่าใช่ของตัวเองไหม"""
+    note = "  งาน-0001 ทดสอบ "
+    d = _post(note=note)
+    assert d["ref"] == note
+    assert set(d) == TOP | {"ref"}
+    assert set(d["model"]) == MODEL
+
+
+def test_note_สตริงว่าง_ก็คืนสตริงว่าง_ไม่ใช่ตัดช่องทิ้ง():
+    d = _post(note="")
+    assert d["ref"] == ""
 
 
 def test_รูปของ_response_ตรงกับที่ตกลงไว้เป๊ะ():

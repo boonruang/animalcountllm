@@ -120,7 +120,7 @@ class RawResult(BaseModel):
     # 🔴 เคยเพิ่ม count_source ตรงนี้ **ถอดออกแล้ว 2026-08-17**
     # spec ของ response confirm กับทีมคุณสุชาติไปแล้ว ห้ามเปลี่ยนรูป
     # ที่มาของจำนวน (cv หรือ vlm) ยังรู้ได้จาก model.prompt_version:
-    #   v3 = โมเดลนับเอง · v2 = CV นับ
+    #   v3 ขึ้นไป = โมเดลนับเอง · v2 = CV นับ
     # และ llm_raw_response ใน DB เก็บคำตอบดิบไว้ทั้งก้อน
     regions_detected: int              # จำนวนก้อนร้อนที่ CV วัดได้ ใช้ตรวจสอบย้อนหลัง
     detections: List[Detection]        # ตำแหน่งของแต่ละก้อน
@@ -156,6 +156,10 @@ class ModelInfo(BaseModel):
 
 class FrameOut(BaseModel):
     request_id: str
+    ref: Optional[str] = None
+    """`note` ที่ปลายทางส่งมา คืนตัวเดิมเป๊ะ · ไม่ส่ง `note` = ไม่มีช่องนี้ใน JSON เลย
+    (post_frame เป็นคนตัดออก) รูปเดิมที่ confirm กับทีมคุณสุชาติจึงไม่ขยับ"""
+
     camera_id: str
     received_at: str
     status: Status
